@@ -33,7 +33,9 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     ...[[28,18],[50,18],[72,18],[28,42.5],[50,42.5],[72,42.5]].map(([x,y],i) => ({id:`away-${i+1}`,team:'opponent',number:i+1,x,y})),
     {id:'ball',team:'ball',number:0,x:50,y:73}
   ], arrows: [] });
-  let state = initial(), gesture = null, landscape = false;
+  let state = initial(), landscape = false;
+  const gestures = new Map();
+  let gestureBefore = null;
   let aimVisibleUntil = 0, aimTimer;
   function keepAimBriefly() {
     clearTimeout(aimTimer);
@@ -52,9 +54,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     temporaryArrows = temporaryArrows.filter(a => a.expiresAt > Date.now());
     if (temporaryArrows.length) expiryTimer = setTimeout(() => {
       scheduleExpiry();
-      drawArrows(gesture && !gesture.piece && gesture.end ? {
-        x1:gesture.start.x,y1:gesture.start.y,x2:gesture.end.x,y2:gesture.end.y
-      } : null);
+      drawArrows();
     },Math.max(0,Math.min(...temporaryArrows.map(a => a.expiresAt))-Date.now()));
   }
   const undo = [], redo = [];
@@ -63,7 +63,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   const announce = message => {
     $('status').textContent = message;
     // Routine movement hints remain accessible without taking up court space.
-    const show = /保存しました|保存した配置を開きました|ありません|できません|読み込めません/.test(message);
+    const show = /保存しました|保存した配置を開きました|ありません|できません|読み込めません|初期値に戻しました/.test(message);
     $('status').classList.toggle('notice',show);
     clearTimeout(noticeTimer);
     if (show) noticeTimer = setTimeout(() => $('status').classList.remove('notice'),3500);
@@ -82,6 +82,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   document.addEventListener('pointerdown',event => {
     dismissedByPointer = false;
     if ($('tool-panel').hidden || $('tool-panel').contains(event.target) || $('toggle-tools').contains(event.target)) return;
+    if (event.target.closest('.board-heading')) { closeTools(); return; }
     dismissedByPointer = true;
     closeTools();
     event.preventDefault();
@@ -122,9 +123,10 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const display = screenPoint(p);
     button.style.left = `${display.x}%`; button.style.top = `${display.y}%`;
   }
-  function drawArrows(preview) {
+  function drawArrows() {
+    const previews = [...gestures.values()].filter(g => !g.piece && g.end).map(g => ({x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y}));
     $('arrow-lines').replaceChildren();
-    [...state.arrows, ...temporaryArrows.filter(a => a.expiresAt > Date.now()), ...(preview ? [preview] : [])].forEach(a => {
+    [...state.arrows, ...temporaryArrows.filter(a => a.expiresAt > Date.now()), ...previews].forEach(a => {
       const line = document.createElementNS('http://www.w3.org/2000/svg','line');
       const start = screenPoint({x:a.x1,y:a.y1}), end = screenPoint({x:a.x2,y:a.y2});
       const scaleX = landscape ? 86/45 : 1, scaleY = landscape ? 1 : 86/45;
@@ -135,7 +137,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   function drawAim() {
     const canvas = $('aim-overlay');
     const ball = state.pieces.find(p => p.team === 'ball');
-    canvas.hidden = $('aim-visibility').value !== 'always' && gesture?.piece?.team !== 'ball' && Date.now() >= aimVisibleUntil;
+    canvas.hidden = $('aim-visibility').value !== 'always' && ![...gestures.values()].some(g => g.piece?.team === 'ball') && Date.now() >= aimVisibleUntil;
     if (canvas.hidden) return;
     const rect = $('court').getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
@@ -180,7 +182,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     return {x:Math.max(7,Math.min(93,p.x)),y:Math.max(5,Math.min(95,p.y))};
   }
   ['portrait','landscape'].forEach(id => $(id).onclick = () => {
-    if (gesture) return;
+    if (gestures.size) return;
     landscape = id === 'landscape';
     document.querySelector('.workspace').classList.toggle('landscape',landscape);
     $('arrows').setAttribute('viewBox',landscape ? '0 0 191.111111 100' : '0 0 100 191.111111');
@@ -189,69 +191,188 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     render();
     announce(landscape ? '横向き：左が味方、右が相手コートです。' : '縦向き：下が味方、上が相手コートです。');
   });
-  window.addEventListener('resize',() => { if (!gesture) render(); else drawAim(); });
+  window.addEventListener('resize',() => { if (!gestures.size) render(); else drawAim(); });
   $('court').addEventListener('pointerdown',event => {
-    if (gesture || event.button !== 0) return;
+    if (gestures.has(event.pointerId) || event.button !== 0) return;
     const target = event.target.closest('.piece');
     event.preventDefault();
     const start = point(event), piece = target ? state.pieces.find(p => p.id === target.dataset.id) : null;
-    gesture = {pointer:event.pointerId,start,before:copy(state),piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null};
+    if (piece && [...gestures.values()].some(g => g.piece === piece)) return;
+    if (!gestures.size) gestureBefore = copy(state);
+    gestures.set(event.pointerId,{pointer:event.pointerId,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
     if (target) { target.focus({preventScroll:true}); target.classList.add('dragging'); }
     $('court').setPointerCapture(event.pointerId);
     drawAim();
   });
   $('court').addEventListener('pointermove',event => {
-    if (!gesture || gesture.pointer !== event.pointerId) return;
+    const gesture = gestures.get(event.pointerId);
+    if (!gesture) return;
     const p = point(event);
     if (gesture.piece) {
       gesture.piece.x = p.x+gesture.offset.x; gesture.piece.y = p.y+gesture.offset.y;
       constrainPiece(gesture.piece);
       placePiece(gesture.target,gesture.piece);
       drawAim();
-    } else { gesture.end = p; drawArrows({x1:gesture.start.x,y1:gesture.start.y,x2:p.x,y2:p.y}); }
+    } else { gesture.end = p; drawArrows(); }
   });
   function finish(event,cancel = false) {
-    if (!gesture || gesture.pointer !== event.pointerId) return;
-    const g = gesture; gesture = null;
+    const g = gestures.get(event.pointerId);
+    if (!g) return;
+    gestures.delete(event.pointerId);
     if (g.piece?.team === 'ball') {
       if (cancel) { clearTimeout(aimTimer); aimVisibleUntil = 0; }
       else keepAimBriefly();
     }
-    if (cancel) state = g.before;
+    if (cancel) {
+      if (g.piece) { Object.assign(g.piece,g.original); placePiece(g.target,g.piece); }
+    }
     else {
       if (!g.piece && g.end && Math.hypot(g.end.x-g.start.x,g.end.y-g.start.y)>2) {
         const arrow = {x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y};
         if (g.temporary) { temporaryArrows.push({...arrow,expiresAt:Date.now()+5000}); scheduleExpiry(); }
         else state.arrows.push(arrow);
       }
-      if (JSON.stringify(state)!==JSON.stringify(g.before)) remember(g.before);
+
     }
+    g.target?.classList.remove('dragging');
     if ($('court').hasPointerCapture(event.pointerId)) $('court').releasePointerCapture(event.pointerId);
-    render();
+    if (!gestures.size) {
+      if (JSON.stringify(state)!==JSON.stringify(gestureBefore)) remember(gestureBefore);
+      gestureBefore = null;
+      render();
+    } else { drawArrows(); drawAim(); }
   }
   $('court').addEventListener('pointerup',event => finish(event));
   $('court').addEventListener('pointercancel',event => finish(event,true));
   $('court').addEventListener('lostpointercapture',event => finish(event,true));
-  function change(fn,message) { const before = copy(state); fn(); if (JSON.stringify(before)!==JSON.stringify(state)) remember(before); render(); announce(message); }
+  function change(fn,message) { if (gestures.size) return; const before = copy(state); fn(); if (JSON.stringify(before)!==JSON.stringify(state)) remember(before); render(); announce(message); }
   $('clear').onclick = () => change(() => { state.arrows = []; temporaryArrows = []; scheduleExpiry(); },'線を消しました。');
   $('reset').onclick = () => change(() => { state = initial(); temporaryArrows = []; scheduleExpiry(); },'初期配置に戻しました。元に戻すこともできます。');
-  function travel(from,to,message) { if (!from.length || gesture) return; to.push(copy(state)); state = from.pop(); render(); announce(message); }
+  function travel(from,to,message) { if (!from.length || gestures.size) return; to.push(copy(state)); state = from.pop(); render(); announce(message); }
   $('undo').onclick = () => travel(undo,redo,'ひとつ前の状態に戻しました。');
   $('redo').onclick = () => travel(redo,undo,'操作をやり直しました。');
-  $('save').onclick = () => { try { localStorage.setItem(KEY,JSON.stringify(state)); announce('配置と矢印を、このブラウザに保存しました。'); } catch { announce('保存できませんでした。ブラウザの保存設定を確認してください。'); } };
   function valid(s) {
     const defaults = initial();
     return s && typeof s.opponents === 'boolean' && Array.isArray(s.pieces) && s.pieces.length === 13 && defaults.pieces.every(p => s.pieces.filter(q => q.id === p.id && q.team === p.team && q.number === p.number && Number.isFinite(q.x) && q.x >= 7 && q.x <= 93 && Number.isFinite(q.y) && q.y >= 5 && q.y <= 95).length === 1) && Array.isArray(s.arrows) && s.arrows.length <= 10000 && s.arrows.every(a => a && ['x1','x2','y1','y2'].every(k => Number.isFinite(a[k]) && a[k] >= 0 && a[k] <= 100));
   }
-  $('load').onclick = () => {
+  const SLOTS_KEY = KEY+'-slots';
+  function defaultSlots() {
+    const formation = (second,mirror) => {
+      const saved = initial();
+      const home = second
+        ? [[85.4,70.5],[57.8,70.5],[31.5,70.5],[71.6,60.5],[47.4,60.5],[21.6,60.5]]
+        : [[74.2,70.5],[57.8,70.5],[31.5,70.5],[85.2,60.5],[47.4,60.5],[21.6,60.5]];
+      saved.pieces.forEach(p => {
+        if (p.team === 'opponent') return;
+        const [x,y] = p.team === 'ball' ? [second ? 60.7 : 65.1,54.6] : home[p.number-1];
+        p.x = mirror ? 100-x : x;
+        p.y = y;
+      });
+      return saved;
+    };
+    return [initial(),formation(false,false),formation(false,true),formation(true,false),formation(true,true)];
+  }
+  const slotButtons = [...document.querySelectorAll('.position-slot')];
+  const slotLabel = i => ['①','②','③','④','⑤'][i];
+  function readSlots() {
+    const raw = localStorage.getItem(SLOTS_KEY);
+    if (raw !== null) {
+      const slots = JSON.parse(raw);
+      if (!Array.isArray(slots) || slots.length !== 5 || !slots.every(s => s === null || valid(s))) throw new Error('invalid slots');
+      return slots.map((slot,i) => slot || defaultSlots()[i]);
+    }
+    const legacy = JSON.parse(localStorage.getItem(KEY) || 'null');
+    const slots = defaultSlots();
+    if (valid(legacy)) slots[0] = legacy;
+    return slots;
+  }
+  function updateSlots() {
     try {
-      const raw = localStorage.getItem(KEY); if (!raw) { announce('保存した配置はまだありません。「配置を保存」を押してください。'); return; }
-      const saved = JSON.parse(raw); if (!valid(saved)) throw new Error('invalid');
-      change(() => { state = saved; temporaryArrows = []; scheduleExpiry(); },'保存した配置を開きました。');
+      const slots = readSlots();
+      slotButtons.forEach((button,i) => {
+        button.classList.toggle('saved',!!slots[i]);
+        button.setAttribute('aria-label','配置'+(i+1)+(slots[i] ? '：登録済み。クリックで呼び出し、長押しで上書き' : '：未登録。長押しで登録'));
+      });
     } catch { announce('保存した配置を読み込めませんでした。'); }
+  }
+  $('reset-slots').onclick = () => {
+    try {
+      localStorage.setItem(SLOTS_KEY,JSON.stringify(defaultSlots()));
+      updateSlots();
+      announce('配置と作戦の初期値に戻しました。');
+    } catch { announce('保存できませんでした。ブラウザの保存設定を確認してください。'); }
   };
+  function saveSlot(i) {
+    if (gestures.size) return;
+    try {
+      const slots = readSlots();
+      slots[i] = {opponents:true,pieces:copy(state.pieces),arrows:[]};
+      localStorage.setItem(SLOTS_KEY,JSON.stringify(slots));
+      updateSlots();
+      announce('配置'+slotLabel(i)+'を保存しました。');
+    } catch { announce('保存できませんでした。ブラウザの保存設定を確認してください。'); }
+  }
+  function loadSlot(i) {
+    try {
+      const saved = readSlots()[i];
+      if (!saved) { announce('配置'+slotLabel(i)+'はまだありません。長押しで登録してください。'); return; }
+      change(() => { state.pieces = copy(saved.pieces); },'保存した配置を開きました：'+slotLabel(i));
+    } catch { announce('保存した配置を読み込めませんでした。'); }
+  }
+  slotButtons.forEach((button,i) => {
+    let press = null, timer, suppressClick = false;
+    const cancel = () => {
+      clearTimeout(timer);
+      button.classList.remove('holding');
+      press = null;
+    };
+    const begin = input => {
+      cancel();
+      suppressClick = false;
+      press = input;
+      button.classList.add('holding');
+      timer = setTimeout(() => {
+        suppressClick = true;
+        button.classList.remove('holding');
+        saveSlot(i);
+      },650);
+    };
+    button.addEventListener('pointerdown',event => {
+      if (event.button !== 0 || !event.isPrimary || press) return;
+      begin({id:event.pointerId,x:event.clientX,y:event.clientY});
+      button.setPointerCapture(event.pointerId);
+    });
+    button.addEventListener('pointermove',event => {
+      if (press?.id === event.pointerId && Math.hypot(event.clientX-press.x,event.clientY-press.y)>10) {
+        cancel(); suppressClick = true;
+      }
+    });
+    button.addEventListener('pointerup',cancel);
+    button.addEventListener('pointercancel',() => { cancel(); suppressClick = true; });
+    button.addEventListener('lostpointercapture',cancel);
+    button.addEventListener('contextmenu',event => event.preventDefault());
+    button.addEventListener('keydown',event => {
+      if (![' ','Enter'].includes(event.key)) return;
+      event.preventDefault();
+      if (!event.repeat) begin({key:event.key});
+    });
+    button.addEventListener('keyup',event => {
+      if (press?.key !== event.key) return;
+      event.preventDefault();
+      cancel();
+      if (!suppressClick) loadSlot(i);
+    });
+    button.addEventListener('click',event => {
+      if (suppressClick) { event.preventDefault(); return; }
+      loadSlot(i);
+    });
+    button.addEventListener('blur',cancel);
+    document.addEventListener('visibilitychange',() => { if (document.hidden) cancel(); });
+  });
+  window.addEventListener('storage',event => { if (event.key === SLOTS_KEY || event.key === null) updateSlots(); });
+  updateSlots();
   document.addEventListener('keydown',event => {
-    if (event.target.matches('input,textarea,select') || gesture) return;
+    if (event.target.matches('input,textarea,select') || gestures.size) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); $(event.shiftKey ? 'redo' : 'undo').click(); return; }
     const target = event.target.closest('.piece');
     const delta = {ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];
@@ -263,3 +384,9 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   });
   render();
 })();
+
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load',() => {
+    navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Offline setup failed:',error));
+  });
+}

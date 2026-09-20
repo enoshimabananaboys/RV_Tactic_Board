@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#173e37">
   <title>ローリングバレーボール作戦ボード</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
@@ -13,27 +16,31 @@
   <main>
     <div class="workspace">
       <aside id="tool-panel" class="panel" hidden>
-        <div class="section-title"><span>操作ツール</span><span class="index">01</span></div>
+        <div class="section-title"><span>操作ツール</span></div>
         <label class="line-setting" for="line-lifetime">線の表示<select id="line-lifetime"><option value="temporary">5秒後に消す</option><option value="permanent">残す</option></select></label>
-        <p class="hint">選手・ボールをドラッグで移動。<br>空いている場所をドラッグして線を描きます。</p>
         <label class="line-setting" for="aim-visibility">狙える範囲<select id="aim-visibility"><option value="recent">ボールを離して5秒後に消す</option><option value="always">常に表示する</option></select></label>
         <div class="divider"></div>
-        <div class="section-title"><span>配置と作戦</span><span class="index">02</span></div>
-        <button id="save" class="primary full">配置を保存 <span>↓</span></button>
-        <button id="load" class="secondary full">保存した配置を開く</button>
-        <p class="hint">このブラウザに1件保存できます。</p>
-        <div class="small-actions"><button id="clear">矢印を消す</button><button id="reset">初期配置に戻す</button></div>
+        <div class="section-title"><span>配置と作戦</span></div>
+        <p class="formation-help">タップで配置を呼び出します。<br>長押しで現在の選手とボールの位置を登録・上書きします。</p>
+        <div class="position-slots" role="group" aria-label="配置と作戦：長押しで登録、クリックで呼び出し">
+          <button class="position-slot" data-slot="0" aria-label="配置1：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">①</button>
+          <button class="position-slot" data-slot="1" aria-label="配置2：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">②</button>
+          <button class="position-slot" data-slot="2" aria-label="配置3：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">③</button>
+          <button class="position-slot" data-slot="3" aria-label="配置4：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">④</button>
+          <button class="position-slot" data-slot="4" aria-label="配置5：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">⑤</button>
+        </div>
+        <div class="slot-actions"><button id="reset-slots" title="①〜⑤の登録内容を標準の配置に戻します">初期値に戻す</button></div>
       </aside>
       <section class="board-panel" aria-label="作戦ボード">
-        <div class="board-heading"><button id="toggle-tools" aria-expanded="false" aria-controls="tool-panel">☰ ツール</button><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div><div class="history"><button id="undo" aria-label="元に戻す" title="元に戻す（Ctrl+Z）">↶</button><button id="redo" aria-label="やり直す" title="やり直す（Ctrl+Shift+Z）">↷</button></div></div>
-        <div class="court-wrap"><div id="opponent-label" class="court-label">OPPONENT <span>相手コート</span></div>
+        <div class="board-heading"><div class="heading-controls"><button id="toggle-tools" aria-expanded="false" aria-controls="tool-panel">☰ ツール</button><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div></div><div class="top-actions"><button id="clear">矢印を消す</button><button id="reset">初期位置に戻す</button></div><div class="history"><button id="undo" aria-label="元に戻す" title="元に戻す（Ctrl+Z）">↶</button><button id="redo" aria-label="やり直す" title="やり直す（Ctrl+Shift+Z）">↷</button></div></div>
+        <div class="court-wrap"><div id="opponent-label" class="court-label" aria-hidden="true"></div>
           <div id="court" class="court">
-            <div class="court-outline"></div><div class="attack-line away-attack" aria-label="相手アタックライン"></div><div class="attack-line home-attack" aria-label="味方アタックライン"></div><div class="center-line"><span>NET</span></div><div class="court-watermark top">AWAY</div><div class="court-watermark bottom">HOME</div>
+            <div class="court-outline"></div><div class="attack-line away-attack" aria-label="相手アタックライン"></div><div class="attack-line home-attack" aria-label="味方アタックライン"></div><div class="center-line"></div><div class="court-watermark top">AWAY</div><div class="court-watermark bottom">HOME</div>
             <canvas id="aim-overlay" aria-hidden="true" hidden></canvas>
             <svg id="arrows" viewBox="0 0 100 191.111111" preserveAspectRatio="none" aria-label="作戦の矢印"><defs><marker id="arrowhead" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5" fill="#fff5c2"/></marker></defs><g id="arrow-lines"></g></svg>
             <div id="pieces"></div>
           </div>
-          <div id="home-label" class="court-label">HOME <span>味方コート</span></div>
+          <div id="home-label" class="court-label" aria-hidden="true"></div>
         </div>
         <div class="board-footer"><span id="mode-label">↖ 移動モード</span><span>指でも、マウスでも。</span></div>
       </section>
