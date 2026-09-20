@@ -124,7 +124,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     button.style.left = `${display.x}%`; button.style.top = `${display.y}%`;
   }
   function drawArrows() {
-    const previews = [...gestures.values()].filter(g => !g.piece && g.end).map(g => ({x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y}));
+    const previews = [...gestures.values()].filter(g => !g.piece && !g.scrolling && g.end).map(g => ({x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y}));
     $('arrow-lines').replaceChildren();
     [...state.arrows, ...temporaryArrows.filter(a => a.expiresAt > Date.now()), ...previews].forEach(a => {
       const line = document.createElementNS('http://www.w3.org/2000/svg','line');
@@ -161,7 +161,14 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     ctx.globalCompositeOperation = 'destination-out';
     for (const p of defenders) { ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill(); }
   }
+  function updatePieceSize() {
+    const rect = $('court').getBoundingClientRect();
+    // The playable court is 9 m wide: 86% of portrait width (landscape height).
+    const diameter = (landscape ? rect.height : rect.width)*0.86/9;
+    $('court').style.setProperty('--piece-size',`${diameter}px`);
+  }
   function render() {
+    updatePieceSize();
     state.pieces.forEach(constrainPiece);
     $('pieces').replaceChildren();
     state.opponents = true;
@@ -191,7 +198,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     render();
     announce(landscape ? '横向き：左が味方、右が相手コートです。' : '縦向き：下が味方、上が相手コートです。');
   });
-  window.addEventListener('resize',() => { if (!gestures.size) render(); else drawAim(); });
+  window.addEventListener('resize',() => { updatePieceSize(); if (!gestures.size) render(); else drawAim(); });
   $('court').addEventListener('pointerdown',event => {
     if (gestures.has(event.pointerId) || event.button !== 0) return;
     const target = event.target.closest('.piece');
@@ -199,7 +206,12 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const start = point(event), piece = target ? state.pieces.find(p => p.id === target.dataset.id) : null;
     if (piece && [...gestures.values()].some(g => g.piece === piece)) return;
     if (!gestures.size) gestureBefore = copy(state);
-    gestures.set(event.pointerId,{pointer:event.pointerId,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
+    gestures.set(event.pointerId,{pointer:event.pointerId,pointerType:event.pointerType,clientX:event.clientX,clientY:event.clientY,scrolling:false,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
+    const touches = [...gestures.values()].filter(g => !g.piece && g.pointerType === 'touch');
+    if (touches.length >= 2 || touches.some(g => g.scrolling)) {
+      touches.forEach(g => { g.scrolling = true; delete g.end; });
+      drawArrows();
+    }
     if (target) { target.focus({preventScroll:true}); target.classList.add('dragging'); }
     $('court').setPointerCapture(event.pointerId);
     drawAim();
@@ -207,6 +219,17 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   $('court').addEventListener('pointermove',event => {
     const gesture = gestures.get(event.pointerId);
     if (!gesture) return;
+    const dx = event.clientX-gesture.clientX, dy = event.clientY-gesture.clientY;
+    gesture.clientX = event.clientX; gesture.clientY = event.clientY;
+    if (gesture.scrolling) {
+      const touches = [...gestures.values()].filter(g => g.scrolling);
+      if (touches.length >= 2) {
+        const viewport = document.querySelector('.court-scroll');
+        viewport.scrollLeft -= dx/touches.length;
+        viewport.scrollTop -= dy/touches.length;
+      }
+      return;
+    }
     const p = point(event);
     if (gesture.piece) {
       gesture.piece.x = p.x+gesture.offset.x; gesture.piece.y = p.y+gesture.offset.y;
@@ -227,7 +250,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
       if (g.piece) { Object.assign(g.piece,g.original); placePiece(g.target,g.piece); }
     }
     else {
-      if (!g.piece && g.end && Math.hypot(g.end.x-g.start.x,g.end.y-g.start.y)>2) {
+      if (!g.piece && !g.scrolling && g.end && Math.hypot(g.end.x-g.start.x,g.end.y-g.start.y)>2) {
         const arrow = {x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y};
         if (g.temporary) { temporaryArrows.push({...arrow,expiresAt:Date.now()+5000}); scheduleExpiry(); }
         else state.arrows.push(arrow);

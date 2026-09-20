@@ -88,3 +88,14 @@ main { max-width:none; width:100%; height:calc(100dvh - 48px); padding:6px; marg
 
 .slot-actions { display:flex; justify-content:flex-end; margin-top:8px; }
 .slot-actions button { min-height:32px; padding:4px; border:0; background:transparent; color:#66766a; font-size:11px; }
+
+/* Player diameter represents 1 m; numbers and outlines scale with the circle. */
+.court .piece:not(.ball) { font-size:calc(var(--piece-size) * .4); line-height:1; border-width:calc(var(--piece-size) * .05); }
+
+/* Fit the court's short side; only the court viewport scrolls. */
+.board-panel { display:flex; flex-direction:column; }
+.board-heading { flex-shrink:0; background:#eaeede; z-index:1; }
+.court-scroll { flex:1; min-height:0; overflow:auto; container-type:size; overscroll-behavior:contain; scrollbar-width:auto; touch-action:pan-x pan-y; }
+.workspace .court-wrap { width:calc(100cqw - 40px); margin:20px auto; padding:0; }
+.workspace.landscape .court-wrap { width:calc((100cqh - 40px) * 86 / 45); margin:20px; padding:0; display:block; }
+.court-label { display:none; }

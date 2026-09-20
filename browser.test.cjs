@@ -70,7 +70,32 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
       await page.setViewportSize(viewport);
       for (const orientation of ['portrait','landscape']) {
         await page.locator('#'+orientation).click();
-        for (const id of ['court','clear','reset','portrait','landscape','undo','redo']) {
+        const headingBefore = await page.locator('.board-heading').boundingBox();
+        const scrollInfo = await page.locator('.court-scroll').evaluate(el => {
+          el.scrollTop = el.scrollHeight; el.scrollLeft = el.scrollWidth;
+          return {top:el.scrollTop,left:el.scrollLeft,width:el.clientWidth,height:el.clientHeight};
+        });
+        assert.deepEqual(await page.locator('.board-heading').boundingBox(),headingBefore,'toolbar stays fixed');
+        const courtSize = await page.locator('#court').boundingBox();
+        if (orientation === 'portrait') assert.ok(Math.abs(courtSize.width-(scrollInfo.width-40))<1);
+        else assert.ok(Math.abs(courtSize.height-(scrollInfo.height-40))<1);
+        if (orientation === 'portrait' && courtSize.height>scrollInfo.height) assert.ok(scrollInfo.top>0);
+        if (orientation === 'landscape' && courtSize.width>scrollInfo.width) assert.ok(scrollInfo.left>0);
+        await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
+        const sizing = await page.locator('#court').evaluate(court => {
+          const rect = court.getBoundingClientRect();
+          const expected = (document.querySelector('.workspace').classList.contains('landscape') ? rect.height : rect.width)*.86/9;
+          return [...court.querySelectorAll('.piece:not(.ball)')].map(piece => {
+            const circle = piece.getBoundingClientRect();
+            return {expected,width:circle.width,height:circle.height,font:parseFloat(getComputedStyle(piece).fontSize)};
+          });
+        });
+        sizing.forEach(size => {
+          assert.ok(Math.abs(size.width-size.expected)<.1,'player diameter is 1 m');
+          assert.ok(Math.abs(size.height-size.width)<.1,'player remains circular');
+          assert.ok(Math.abs(size.font-size.expected*.4)<.1,'number scales with circle');
+        });
+        for (const id of ['clear','reset','portrait','landscape','undo','redo']) {
           const rect = await page.locator('#'+id).boundingBox();
           assert.ok(rect.x>=0 && rect.y>=0 && rect.x+rect.width<=viewport.width+1 && rect.y+rect.height<=viewport.height+1,id+' fits '+JSON.stringify(viewport));
         }
@@ -126,6 +151,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     assert.deepEqual(await positions(),baseline);
     // Opponent and home courts can be manipulated at the same time in both orientations.
     for (const orientation of ['portrait','landscape']) {
+      await page.setViewportSize(orientation === 'portrait' ? {width:390,height:844} : {width:844,height:390});
       await page.locator('#'+orientation).click();
       const beforeTeams = await positions();
       one = await center('home-2',1); two = await center('away-2',2);
@@ -142,26 +168,53 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
       assert.deepEqual(await positions(),beforeTeams);
     }
     await page.locator('#portrait').click();
+    await page.setViewportSize({width:390,height:844});
     // Cancelling simultaneous gestures restores their positions.
     one = await center('home-1',1); two = await center('ball',2);
     await touch('touchStart',[one,two]);
     await touch('touchMove',[{...one,x:one.x-20},{...two,x:two.x+20}]);
     await touch('touchCancel',[]);
     assert.deepEqual(await positions(),baseline);
-    // Two simultaneous drawing gestures keep separate previews and completed lines.
+    // One empty-court touch draws; two or more switch to scrolling without leaving arrows.
     await page.locator('#toggle-tools').click();
     await page.locator('#line-lifetime').selectOption('permanent');
     await page.locator('#toggle-tools').click();
+    await page.setViewportSize({width:700,height:700});
+    await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
     const courtBox = await page.locator('#court').boundingBox();
     one = {id:1,x:courtBox.x+courtBox.width*.35,y:courtBox.y+courtBox.height*.25};
-    two = {id:2,x:courtBox.x+courtBox.width*.65,y:courtBox.y+courtBox.height*.25};
-    await touch('touchStart',[one,two]);
-    await touch('touchMove',[{...one,y:one.y+25},{...two,y:two.y+25}]);
-    assert.equal(await page.locator('#arrow-lines line').count(),2);
+    two = {id:2,x:courtBox.x+courtBox.width*.65,y:one.y};
+    await touch('touchStart',[one]);
+    await touch('touchMove',[{...one,y:one.y-35}]);
     await touch('touchEnd',[]);
-    assert.equal(await page.locator('#arrow-lines line').count(),2);
+    assert.equal(await page.locator('#arrow-lines line').count(),1);
     await page.locator('#undo').click();
+    await touch('touchStart',[one]);
+    one = {...one,y:one.y-25};
+    await touch('touchMove',[one]);
+    await touch('touchStart',[one,two]);
+    assert.equal(await page.locator('#arrow-lines line').count(),0,'second finger cancels arrow preview');
+    one = {...one,y:one.y-60}; two = {...two,y:two.y-60};
+    await touch('touchMove',[one,two]);
+    await page.waitForFunction(() => document.querySelector('.court-scroll').scrollTop>40);
+    const third = {id:3,x:courtBox.x+courtBox.width*.5,y:two.y};
+    await touch('touchStart',[one,two,third]);
+    await touch('touchMove',[{...one,y:one.y-30},{...two,y:two.y-30},{...third,y:third.y-30}]);
+    await touch('touchEnd',[]);
     assert.equal(await page.locator('#arrow-lines line').count(),0);
+    // Horizontal scrolling in landscape uses the same gesture.
+    await page.setViewportSize({width:390,height:844});
+    await page.locator('#landscape').click();
+    await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
+    const horizontal = await page.locator('#court').boundingBox();
+    one = {id:1,x:240,y:horizontal.y+horizontal.height*.4};
+    two = {id:2,x:300,y:horizontal.y+horizontal.height*.6};
+    await touch('touchStart',[one,two]);
+    await touch('touchMove',[{...one,x:one.x-60},{...two,x:two.x-60}]);
+    await page.waitForFunction(() => document.querySelector('.court-scroll').scrollLeft>40);
+    await touch('touchEnd',[]);
+    assert.equal(await page.locator('#arrow-lines line').count(),0);
+    await page.locator('#portrait').click();
     await page.locator('#toggle-tools').click();
     await page.screenshot({path:path.join(process.env.TEMP,'rv-formations-mobile.png')});
     await context.setOffline(true);

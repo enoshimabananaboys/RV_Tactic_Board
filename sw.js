@@ -1,6 +1,6 @@
 // Increment the version whenever a shipped app asset changes.
 const PREFIX = 'rv-tactic-board-'+self.registration.scope+'-';
-const CACHE = PREFIX+'v3';
+const CACHE = PREFIX+'v6';
 const ASSETS = ['./','./index.html','./styles.css','./app.js','./ball.svg','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png'];
 self.addEventListener('install',event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
