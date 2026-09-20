@@ -73,6 +73,33 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     $('tool-panel').hidden = !open;
     $('toggle-tools').setAttribute('aria-expanded',open);
   };
+  function closeTools() {
+    $('tool-panel').hidden = true;
+    $('toggle-tools').setAttribute('aria-expanded','false');
+    $('toggle-tools').focus({preventScroll:true});
+  }
+  let dismissedByPointer = false;
+  document.addEventListener('pointerdown',event => {
+    dismissedByPointer = false;
+    if ($('tool-panel').hidden || $('tool-panel').contains(event.target) || $('toggle-tools').contains(event.target)) return;
+    dismissedByPointer = true;
+    closeTools();
+    event.preventDefault();
+    event.stopPropagation();
+  },true);
+  // Consume the click following dismissal, including clicks on other controls.
+  document.addEventListener('click',event => {
+    if (!dismissedByPointer || event.detail === 0) return;
+    dismissedByPointer = false;
+    event.preventDefault();
+    event.stopPropagation();
+  },true);
+  document.addEventListener('keydown',event => {
+    if (event.key === 'Escape' && !$('tool-panel').hidden) {
+      closeTools();
+      event.preventDefault();
+    }
+  });
   function remember(previous) { undo.push(previous); if (undo.length > 60) undo.shift(); redo.length = 0; }
   function historyButtons() { $('undo').disabled = !undo.length; $('redo').disabled = !redo.length; }
   // Stored coordinates always use the portrait court: home at the bottom.
