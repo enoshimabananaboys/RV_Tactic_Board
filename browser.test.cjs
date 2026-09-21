@@ -54,7 +54,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     const original = await positions();
     assert.equal(await page.locator('#help-dialog').isVisible(),false);
     await page.locator('#toggle-tools').click();
-    await page.locator('#open-help').click();
+    await page.locator('#open-help').tap();
     assert.equal(await page.locator('#help-dialog').isVisible(),true);
     await page.setViewportSize({width:320,height:568});
     const closeBefore = await page.locator('#close-help').boundingBox();
@@ -285,8 +285,15 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     const doubleTapEmpty = async () => {
       const r = await page.locator('#court').boundingBox();
       const p = {id:1,x:r.x+r.width*.4,y:r.y+r.height*.25};
-      await touch('touchStart',[p]); await touch('touchEnd',[]);
-      await touch('touchStart',[p]); await touch('touchEnd',[]);
+      await touch('touchStart',[p]);
+      await touch('touchMove',[{...p,x:p.x+14,y:p.y+6}]);
+      await page.waitForTimeout(320);
+      assert.equal(await page.locator('#arrow-lines line').count(),0,'touch jitter must not show an arrow preview');
+      await touch('touchEnd',[]);
+      await page.waitForTimeout(370);
+      await touch('touchStart',[{...p,x:p.x+20}]);
+      await touch('touchMove',[{...p,x:p.x+32,y:p.y+6}]);
+      await touch('touchEnd',[]);
     };
     await doubleTapEmpty();
     assert.equal(await page.locator('.court-wrap').evaluate(el => Number(el.style.getPropertyValue('--court-zoom'))),1);

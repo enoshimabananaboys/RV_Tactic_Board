@@ -74,11 +74,29 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     $('tool-panel').hidden = !open;
     $('toggle-tools').setAttribute('aria-expanded',open);
   };
-  $('open-help').onclick = () => {
+  function openHelp() {
     dismissedByPointer = false;
-    $('help-dialog').showModal();
+    if (!$('help-dialog').open) $('help-dialog').showModal();
     document.querySelector('.help-content').scrollTop = 0;
-  };
+  }
+  $('open-help').onclick = openHelp;
+  // Touch taps may not produce a click after small finger motion on a scrollable panel.
+  let helpTouch = null;
+  $('open-help').addEventListener('pointerdown',event => {
+    helpTouch = event.pointerType === 'touch' ? {id:event.pointerId,x:event.clientX,y:event.clientY} : null;
+  });
+  $('open-help').addEventListener('pointermove',event => {
+    if (helpTouch && Math.hypot(event.clientX-helpTouch.x,event.clientY-helpTouch.y)>18) helpTouch = null;
+  });
+  $('open-help').addEventListener('pointercancel',() => { helpTouch = null; });
+  $('open-help').addEventListener('pointerup',event => {
+    if (helpTouch?.id !== event.pointerId) return;
+    helpTouch = null;
+    const rect = $('open-help').getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
+    event.preventDefault();
+    openHelp();
+  });
   let helpBackdropPointer = null;
   const outsideHelp = event => {
     const rect = $('help-dialog').getBoundingClientRect();
@@ -277,7 +295,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   $('court').addEventListener('pointermove',event => {
     const gesture = gestures.get(event.pointerId);
     if (!gesture) return;
-    if (Math.hypot(event.clientX-gesture.tapX,event.clientY-gesture.tapY)>10) gesture.tapMoved = true;
+    if (Math.hypot(event.clientX-gesture.tapX,event.clientY-gesture.tapY)>(gesture.pointerType === 'touch' ? 24 : 10)) gesture.tapMoved = true;
     gesture.clientX = event.clientX; gesture.clientY = event.clientY;
     if (gesture.scrolling) {
       const geometry = touchGeometry();
@@ -304,8 +322,8 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   function finish(event,cancel = false) {
     const g = gestures.get(event.pointerId);
     if (!g) return;
-    const isTap = !cancel && !g.piece && !g.scrolling && !g.tapMoved && !g.end && Date.now()-g.tapStarted<300;
-    const doubleTap = isTap && lastCourtTap && Date.now()-lastCourtTap.time<350 && Math.hypot(event.clientX-lastCourtTap.x,event.clientY-lastCourtTap.y)<24;
+    const isTap = !cancel && !g.piece && !g.scrolling && !g.tapMoved && !g.end && Date.now()-g.tapStarted<500;
+    const doubleTap = isTap && lastCourtTap && g.tapStarted-lastCourtTap.time<450 && Math.hypot(event.clientX-lastCourtTap.x,event.clientY-lastCourtTap.y)<40;
     lastCourtTap = isTap && !doubleTap ? {time:Date.now(),x:event.clientX,y:event.clientY} : null;
     gestures.delete(event.pointerId);
     if (g.scrolling) resetPinch();

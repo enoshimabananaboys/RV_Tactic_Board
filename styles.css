@@ -129,3 +129,5 @@ main { height:100dvh; padding:0; }
 .help-content p { margin:0 0 8px; }
 .help-content details { margin-top:20px; border-top:1px solid #e0e4da; padding-top:10px; }
 .help-content summary { cursor:pointer; padding:8px 0; color:#234e3e; font-weight:700; }
+
+#open-help, #close-help { touch-action:manipulation; }
