@@ -12,11 +12,12 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header><a class="brand" href="./"><span class="brand-icon">RV</span><span>TACTIC BOARD<small>ローリングバレーボール</small></span></a><span class="edition">作戦を、動かして考える。</span></header>
   <main>
     <div class="workspace">
       <aside id="tool-panel" class="panel" hidden>
+        <div class="tool-brand"><span class="brand-icon" aria-hidden="true">RV</span><span>TACTIC BOARD<small>ローリングバレーボール作戦ボード</small></span></div>
         <div class="section-title"><span>操作ツール</span></div>
+        <div class="orientation-setting"><span>コートの向き</span><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div></div>
         <label class="line-setting" for="line-lifetime">線の表示<select id="line-lifetime"><option value="temporary">5秒後に消す</option><option value="permanent">残す</option></select></label>
         <label class="line-setting" for="aim-visibility">狙える範囲<select id="aim-visibility"><option value="recent">ボールを離して5秒後に消す</option><option value="always">常に表示する</option></select></label>
         <div class="divider"></div>
@@ -32,7 +33,7 @@
         <div class="slot-actions"><button id="reset-slots" title="①〜⑤の登録内容を標準の配置に戻します">初期値に戻す</button></div>
       </aside>
       <section class="board-panel" aria-label="作戦ボード">
-        <div class="board-heading"><div class="heading-controls"><button id="toggle-tools" aria-expanded="false" aria-controls="tool-panel">☰ ツール</button><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div></div><div class="top-actions"><button id="clear">矢印を消す</button><button id="reset">初期位置に戻す</button></div><div class="history"><button id="undo" aria-label="元に戻す" title="元に戻す（Ctrl+Z）">↶</button><button id="redo" aria-label="やり直す" title="やり直す（Ctrl+Shift+Z）">↷</button></div></div>
+        <div class="board-heading"><div class="heading-controls"><a class="brand-icon toolbar-home" href="./" aria-label="作戦ボードのホーム" title="作戦ボードのホーム">RV</a><button id="toggle-tools" aria-expanded="false" aria-controls="tool-panel" aria-label="ツール" title="ツール">☰</button></div><div class="top-actions"><button id="clear">矢印消去</button><button id="reset">初期位置へ</button></div><div class="history"><button id="undo" aria-label="元に戻す" title="元に戻す（Ctrl+Z）">↶</button><button id="redo" aria-label="やり直す" title="やり直す（Ctrl+Shift+Z）">↷</button></div></div>
         <div class="court-scroll" tabindex="0" role="region" aria-label="コート（スクロールできます）">
         <div class="court-wrap"><div id="opponent-label" class="court-label" aria-hidden="true"></div>
           <div id="court" class="court">

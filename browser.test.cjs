@@ -27,6 +27,14 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     await page.goto('http://127.0.0.1:'+server.address().port);
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => navigator.serviceWorker.controller);
+    const initialScroll = await page.locator('.court-scroll').evaluate(el => ({top:el.scrollTop,max:el.scrollHeight-el.clientHeight}));
+    assert.ok(initialScroll.max>0 && Math.abs(initialScroll.top-initialScroll.max)<1,'initial view starts at the home court');
+    assert.equal(await page.locator('.toolbar-home').getAttribute('href'),'./');
+    const setOrientation = async id => {
+      if (!(await page.locator('#tool-panel').isVisible())) await page.locator('#toggle-tools').click();
+      await page.locator('#'+id).click();
+      await page.locator('#toggle-tools').click();
+    };
     const positions = () => page.locator('.piece').evaluateAll(elements => elements.map(e => [e.dataset.id,e.style.left,e.style.top]));
     const original = await positions();
     await page.locator('#toggle-tools').click();
@@ -69,7 +77,9 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     for (const viewport of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]) {
       await page.setViewportSize(viewport);
       for (const orientation of ['portrait','landscape']) {
-        await page.locator('#'+orientation).click();
+        await setOrientation(orientation);
+        const toolbarButtons = await page.locator('.board-heading button').evaluateAll(buttons => buttons.map(b => { const r=b.getBoundingClientRect(); return r.y+r.height/2; }));
+        assert.ok(Math.max(...toolbarButtons)-Math.min(...toolbarButtons)<1,'toolbar stays on one row');
         const headingBefore = await page.locator('.board-heading').boundingBox();
         const scrollInfo = await page.locator('.court-scroll').evaluate(el => {
           el.scrollTop = el.scrollHeight; el.scrollLeft = el.scrollWidth;
@@ -95,14 +105,14 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
           assert.ok(Math.abs(size.height-size.width)<.1,'player remains circular');
           assert.ok(Math.abs(size.font-size.expected*.4)<.1,'number scales with circle');
         });
-        for (const id of ['clear','reset','portrait','landscape','undo','redo']) {
+        for (const id of ['toggle-tools','clear','reset','undo','redo']) {
           const rect = await page.locator('#'+id).boundingBox();
           assert.ok(rect.x>=0 && rect.y>=0 && rect.x+rect.width<=viewport.width+1 && rect.y+rect.height<=viewport.height+1,id+' fits '+JSON.stringify(viewport));
         }
       }
     }
     await page.setViewportSize({width:390,height:844});
-    await page.locator('#portrait').click();
+    await setOrientation('portrait');
     await page.locator('#toggle-tools').click();
     await page.screenshot({path:path.join(process.env.TEMP,'rv-toolbar-mobile.png')});
     // Reset saved slots without changing the current board, then check mirrored defaults.
@@ -152,7 +162,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     // Opponent and home courts can be manipulated at the same time in both orientations.
     for (const orientation of ['portrait','landscape']) {
       await page.setViewportSize(orientation === 'portrait' ? {width:390,height:844} : {width:844,height:390});
-      await page.locator('#'+orientation).click();
+      await setOrientation(orientation);
       const beforeTeams = await positions();
       one = await center('home-2',1); two = await center('away-2',2);
       await touch('touchStart',[one,two]);
@@ -167,7 +177,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
       await page.locator('#undo').click();
       assert.deepEqual(await positions(),beforeTeams);
     }
-    await page.locator('#portrait').click();
+    await setOrientation('portrait');
     await page.setViewportSize({width:390,height:844});
     // Cancelling simultaneous gestures restores their positions.
     one = await center('home-1',1); two = await center('ball',2);
@@ -204,7 +214,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     assert.equal(await page.locator('#arrow-lines line').count(),0);
     // Horizontal scrolling in landscape uses the same gesture.
     await page.setViewportSize({width:390,height:844});
-    await page.locator('#landscape').click();
+    await setOrientation('landscape');
     await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
     const horizontal = await page.locator('#court').boundingBox();
     one = {id:1,x:240,y:horizontal.y+horizontal.height*.4};
@@ -214,7 +224,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     await page.waitForFunction(() => document.querySelector('.court-scroll').scrollLeft>40);
     await touch('touchEnd',[]);
     assert.equal(await page.locator('#arrow-lines line').count(),0);
-    await page.locator('#portrait').click();
+    await setOrientation('portrait');
     await page.locator('#toggle-tools').click();
     await page.screenshot({path:path.join(process.env.TEMP,'rv-formations-mobile.png')});
     await context.setOffline(true);
@@ -224,7 +234,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     assert.equal(await page.locator('.position-slot.saved').count(),5);
     await page.locator('[data-slot="0"]').click();
     assert.match(await page.locator('#status').textContent(),/保存した配置を開きました/);
-    await page.locator('#landscape').click();
+    await setOrientation('landscape');
     assert.equal(await page.locator('#landscape').getAttribute('aria-pressed'),'true');
     assert.equal(await page.locator('#tool-panel').isVisible(),false);
     assert.equal(await page.evaluate(async () => (await fetch('./icons/icon-512.png')).status),200);

@@ -406,6 +406,9 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     document.querySelector(`[data-id="${id}"]`).focus({preventScroll:true});
   });
   render();
+  // Start at the home court once; subsequent user scrolling remains untouched.
+  const initialViewport = document.querySelector('.court-scroll');
+  initialViewport.scrollTop = initialViewport.scrollHeight;
 })();
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
