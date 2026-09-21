@@ -1,71 +1,289 @@
 <!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#173e37">
-  <title>ローリングバレーボール作戦ボード</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
-</head>
-<body>
-  <main>
-    <div class="workspace">
-      <aside id="tool-panel" class="panel" hidden>
-        <div class="tool-brand"><span class="brand-icon" aria-hidden="true">RV</span><span>TACTIC BOARD<small>ローリングバレーボール作戦ボード</small></span></div>
-        <button id="open-help" aria-haspopup="dialog" aria-controls="help-dialog">ⓘ 使い方</button>
-        <div class="section-title"><span>操作ツール</span></div>
-        <div class="orientation-setting"><span>コートの向き</span><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div></div>
-        <label class="line-setting" for="line-lifetime">線の表示<select id="line-lifetime"><option value="temporary">5秒後に消す</option><option value="permanent">残す</option></select></label>
-        <label class="line-setting" for="aim-visibility">狙える範囲<select id="aim-visibility"><option value="recent">ボールを離して5秒後に消す</option><option value="always">常に表示する</option></select></label>
-        <div class="divider"></div>
-        <div class="section-title"><span>配置と作戦</span></div>
-        <p class="formation-help">タップで配置を呼び出します。<br>長押しで現在の選手とボールの位置を登録・上書きします。</p>
-        <div class="position-slots" role="group" aria-label="配置と作戦：長押しで登録、クリックで呼び出し">
-          <button class="position-slot" data-slot="0" aria-label="配置1：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">①</button>
-          <button class="position-slot" data-slot="1" aria-label="配置2：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">②</button>
-          <button class="position-slot" data-slot="2" aria-label="配置3：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">③</button>
-          <button class="position-slot" data-slot="3" aria-label="配置4：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">④</button>
-          <button class="position-slot" data-slot="4" aria-label="配置5：未登録。長押しで登録" title="長押しで登録・クリックで呼び出し">⑤</button>
-        </div>
-        <div class="slot-actions"><button id="reset-slots" title="①〜⑤の登録内容を標準の配置に戻します">初期値に戻す</button></div>
-      </aside>
-      <section class="board-panel" aria-label="作戦ボード">
-        <div class="board-heading"><div class="heading-controls"><a class="brand-icon toolbar-home" href="./" aria-label="作戦ボードのホーム" title="作戦ボードのホーム">RV</a><button id="toggle-tools" aria-expanded="false" aria-controls="tool-panel" aria-label="ツール" title="ツール">☰</button></div><div class="top-actions"><button id="clear">矢印消去</button><button id="reset">初期位置へ</button></div><div class="history"><button id="undo" aria-label="元に戻す" title="元に戻す（Ctrl+Z）">↶</button><button id="redo" aria-label="やり直す" title="やり直す（Ctrl+Shift+Z）">↷</button></div></div>
-        <div class="court-scroll" tabindex="0" role="region" aria-label="コート（スクロールできます）">
-        <div class="court-wrap"><div id="opponent-label" class="court-label" aria-hidden="true"></div>
-          <div id="court" class="court">
-            <div class="court-outline"></div><div class="attack-line away-attack" aria-label="相手アタックライン"></div><div class="attack-line home-attack" aria-label="味方アタックライン"></div><div class="center-line"></div><div class="court-watermark top">AWAY</div><div class="court-watermark bottom">HOME</div>
-            <canvas id="aim-overlay" aria-hidden="true" hidden></canvas>
-            <svg id="arrows" viewBox="0 0 100 191.111111" preserveAspectRatio="none" aria-label="作戦の矢印"><defs><marker id="arrowhead" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5" fill="#fff5c2"/></marker></defs><g id="arrow-lines"></g></svg>
-            <div id="pieces"></div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#173e37" />
+    <title>ローリングバレーボール作戦ボード</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="stylesheet" href="styles.css" />
+    <!-- deferは文書順に実行されるため、計算・配置モデルを先に読み込む。 -->
+    <script src="board-model.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <div class="workspace">
+        <!-- 表示設定と保存枠。開閉状態はhiddenとaria-expandedで同期する。 -->
+        <aside id="tool-panel" class="panel" hidden>
+          <div class="tool-brand">
+            <span class="brand-icon" aria-hidden="true">RV</span
+            ><span
+              >TACTIC BOARD<small>ローリングバレーボール作戦ボード</small></span
+            >
           </div>
-          <div id="home-label" class="court-label" aria-hidden="true"></div>
-        </div>
-        </div>
-        <div class="board-footer"><span id="mode-label">↖ 移動モード</span><span>指でも、マウスでも。</span></div>
-      </section>
-    </div>
-    <div id="status" role="status" aria-live="polite">準備できました。選手を動かしてみましょう。</div>
-  </main>
-  <dialog id="help-dialog" aria-labelledby="help-title">
-    <div class="help-heading"><h2 id="help-title">使い方</h2><button id="close-help" autofocus>× 閉じる</button></div>
-    <div class="help-content" tabindex="0" role="region" aria-label="操作説明">
-      <section><h3>選手・ボールを動かす</h3><p>指でドラッグします。複数の選手を同時に動かせます。</p></section>
-      <section><h3>矢印を描く</h3><p>何もないコートを1本指でなぞります。<br>ツールで「5秒後に消す」「残す」を選べます。</p></section>
-      <section><h3>コートを見る</h3><p>何もないコートを2本指で動かすとスクロール。<br>指を広げる・狭めると拡大・縮小します。<br>ダブルタップで「全体表示」と「短辺合わせ」を切り替えます。</p></section>
-      <section><h3>配置を呼び出す・保存する</h3><p>①〜⑤をタップすると配置を呼び出します。<br>長押しすると、現在の両チームとボールの位置を上書き保存します。</p></section>
-      <section><h3>操作を戻す</h3><p>↶で元に戻す、↷でやり直します。</p></section>
-      <section><h3>初期状態に戻す</h3><p>「初期位置へ」は現在のボードをリセットします。<br>ツール内の「初期値に戻す」は①〜⑤の登録内容をリセットします。</p></section>
-      <details><summary>その他の操作</summary>
-        <section><h3>表示の向きと大きさ</h3><p>ツールの「縦・横」で向きを変更できます。切り替えると短辺合わせ（100%）に戻ります。縮小は全体表示まで、拡大は300%までできます。</p></section>
-        <section><h3>狙える範囲</h3><p>ボールを動かすと、相手選手に遮られない方向を黄色で表示します。ツールで「ボールを離して5秒後に消す」「常に表示する」を選べます。</p></section>
-        <section><h3>マウス・キーボード</h3><p>マウスでもドラッグで移動・描画できます。何もないコートをダブルクリックすると表示サイズを切り替えます。</p><p>選手・ボールにフォーカスして矢印キーで微調整。Ctrl / Command + Zで元に戻す、Shiftを加えるとやり直し。①〜⑤ではSpace / Enterの短押しで呼び出し、長押しで登録できます。</p></section>
-      </details>
-    </div>
-  </dialog>
-</body>
+          <button
+            id="open-help"
+            aria-haspopup="dialog"
+            aria-controls="help-dialog"
+          >
+            ⓘ 使い方
+          </button>
+          <div class="section-title"><span>操作ツール</span></div>
+          <div class="orientation-setting">
+            <span>コートの向き</span>
+            <div class="orientation" role="group" aria-label="コートの向き">
+              <button id="portrait" aria-pressed="true">縦</button
+              ><button id="landscape" aria-pressed="false">横</button>
+            </div>
+          </div>
+          <label class="line-setting" for="line-lifetime"
+            >線の表示<select id="line-lifetime">
+              <option value="temporary">5秒後に消す</option>
+              <option value="permanent">残す</option>
+            </select></label
+          >
+          <label class="line-setting" for="aim-visibility"
+            >狙える範囲<select id="aim-visibility">
+              <option value="recent">ボールを離して5秒後に消す</option>
+              <option value="always">常に表示する</option>
+            </select></label
+          >
+          <div class="divider"></div>
+          <div class="section-title"><span>配置と作戦</span></div>
+          <p class="formation-help">
+            タップで配置を呼び出します。<br />長押しで現在の選手とボールの位置を登録・上書きします。
+          </p>
+          <div
+            class="position-slots"
+            role="group"
+            aria-label="配置と作戦：長押しで登録、クリックで呼び出し"
+          >
+            <button
+              class="position-slot"
+              data-slot="0"
+              aria-label="配置1：未登録。長押しで登録"
+              title="長押しで登録・クリックで呼び出し"
+            >
+              ①
+            </button>
+            <button
+              class="position-slot"
+              data-slot="1"
+              aria-label="配置2：未登録。長押しで登録"
+              title="長押しで登録・クリックで呼び出し"
+            >
+              ②
+            </button>
+            <button
+              class="position-slot"
+              data-slot="2"
+              aria-label="配置3：未登録。長押しで登録"
+              title="長押しで登録・クリックで呼び出し"
+            >
+              ③
+            </button>
+            <button
+              class="position-slot"
+              data-slot="3"
+              aria-label="配置4：未登録。長押しで登録"
+              title="長押しで登録・クリックで呼び出し"
+            >
+              ④
+            </button>
+            <button
+              class="position-slot"
+              data-slot="4"
+              aria-label="配置5：未登録。長押しで登録"
+              title="長押しで登録・クリックで呼び出し"
+            >
+              ⑤
+            </button>
+          </div>
+          <div class="slot-actions">
+            <button
+              id="reset-slots"
+              title="①〜⑤の登録内容を標準の配置に戻します"
+            >
+              初期値に戻す
+            </button>
+          </div>
+        </aside>
+        <section class="board-panel" aria-label="作戦ボード">
+          <div class="board-heading">
+            <div class="heading-controls">
+              <a
+                class="brand-icon toolbar-home"
+                href="./"
+                aria-label="作戦ボードのホーム"
+                title="作戦ボードのホーム"
+                >RV</a
+              ><button
+                id="toggle-tools"
+                aria-expanded="false"
+                aria-controls="tool-panel"
+                aria-label="ツール"
+                title="ツール"
+              >
+                ☰
+              </button>
+            </div>
+            <div class="top-actions">
+              <button id="clear">矢印消去</button
+              ><button id="reset">初期位置へ</button>
+            </div>
+            <div class="history">
+              <button
+                id="undo"
+                aria-label="元に戻す"
+                title="元に戻す（Ctrl+Z）"
+              >
+                ↶</button
+              ><button
+                id="redo"
+                aria-label="やり直す"
+                title="やり直す（Ctrl+Shift+Z）"
+              >
+                ↷
+              </button>
+            </div>
+          </div>
+          <!-- 固定ツールバーの下だけをスクロールさせる。 -->
+          <div
+            class="court-scroll"
+            tabindex="0"
+            role="region"
+            aria-label="コート（スクロールできます）"
+          >
+            <div class="court-wrap">
+              <div
+                id="opponent-label"
+                class="court-label"
+                aria-hidden="true"
+              ></div>
+              <div id="court" class="court">
+                <div class="court-outline"></div>
+                <div
+                  class="attack-line away-attack"
+                  aria-label="相手アタックライン"
+                ></div>
+                <div
+                  class="attack-line home-attack"
+                  aria-label="味方アタックライン"
+                ></div>
+                <div class="center-line"></div>
+                <div class="court-watermark top">AWAY</div>
+                <div class="court-watermark bottom">HOME</div>
+                <!-- 重なり順は狙い範囲（Canvas）→矢印（SVG）→駒。 -->
+                <canvas id="aim-overlay" aria-hidden="true" hidden></canvas>
+                <svg
+                  id="arrows"
+                  viewBox="0 0 100 191.111111"
+                  preserveAspectRatio="none"
+                  aria-label="作戦の矢印"
+                >
+                  <defs>
+                    <marker
+                      id="arrowhead"
+                      markerWidth="5"
+                      markerHeight="5"
+                      refX="4"
+                      refY="2.5"
+                      orient="auto"
+                    >
+                      <path d="M0,0 L5,2.5 L0,5" fill="#fff5c2" />
+                    </marker>
+                  </defs>
+                  <g id="arrow-lines"></g>
+                </svg>
+                <div id="pieces"></div>
+              </div>
+              <div id="home-label" class="court-label" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="board-footer">
+            <span id="mode-label">↖ 移動モード</span
+            ><span>指でも、マウスでも。</span>
+          </div>
+        </section>
+      </div>
+      <div id="status" role="status" aria-live="polite">
+        準備できました。選手を動かしてみましょう。
+      </div>
+    </main>
+    <!-- ネイティブdialogで背景操作を抑止し、説明本文だけをスクロールする。 -->
+    <dialog id="help-dialog" aria-labelledby="help-title">
+      <div class="help-heading">
+        <h2 id="help-title">使い方</h2>
+        <button id="close-help" autofocus>× 閉じる</button>
+      </div>
+      <div
+        class="help-content"
+        tabindex="0"
+        role="region"
+        aria-label="操作説明"
+      >
+        <section>
+          <h3>選手・ボールを動かす</h3>
+          <p>指でドラッグします。複数の選手を同時に動かせます。</p>
+        </section>
+        <section>
+          <h3>矢印を描く</h3>
+          <p>
+            何もないコートを約0.5秒長押ししてから、そのまま指を動かします。<br />ツールで「5秒後に消す」「残す」を選べます。一時的な矢印は、最後の矢印を描き終えてから5秒後にまとめて消えます。長押しが成立してから描画中は、指を止めていても前の線を消しません。描画を終えると5秒を数え直します。
+          </p>
+        </section>
+        <section>
+          <h3>コートを見る</h3>
+          <p>
+            拡大時など、スクロールできる状態では何もないコートを長押しせずに1本指で動かすとパン（スクロール）します。<br />2本指ではパンと拡大・縮小を同時に操作できます。<br />指を広げる・狭めると拡大・縮小します。<br />ダブルタップで「全体表示」と「短辺合わせ」を切り替えます。
+          </p>
+        </section>
+        <section>
+          <h3>配置を呼び出す・保存する</h3>
+          <p>
+            ①〜⑤をタップすると配置を呼び出します。<br />長押しすると、現在の両チームとボールの位置を上書き保存します。
+          </p>
+        </section>
+        <section>
+          <h3>操作を戻す</h3>
+          <p>↶で元に戻す、↷でやり直します。</p>
+        </section>
+        <section>
+          <h3>初期状態に戻す</h3>
+          <p>
+            「初期位置へ」は現在のボードをリセットします。<br />ツール内の「初期値に戻す」は①〜⑤の登録内容をリセットします。
+          </p>
+        </section>
+        <details>
+          <summary>その他の操作</summary>
+          <section>
+            <h3>表示の向きと大きさ</h3>
+            <p>
+              起動時は長辺合わせでコート全体を表示します。ツールの「縦・横」で向きを変更できます。切り替えると短辺合わせ（100%）に戻ります。縮小は全体表示まで、拡大は300%までできます。
+            </p>
+          </section>
+          <section>
+            <h3>狙える範囲</h3>
+            <p>
+              ボールを動かすと、相手選手に遮られない方向を黄色で表示します。ツールで「ボールを離して5秒後に消す」「常に表示する」を選べます。
+            </p>
+          </section>
+          <section>
+            <h3>マウス・キーボード</h3>
+            <p>
+              マウスでは駒をドラッグして移動します。何もないコートを約0.5秒長押ししてからドラッグすると矢印を描き、長押し前のドラッグでパンします。何もないコートをダブルクリックすると表示サイズを切り替えます。
+            </p>
+            <p>
+              選手・ボールにフォーカスして矢印キーで微調整。Ctrl / Command +
+              Zで元に戻す、Shiftを加えるとやり直し。①〜⑤ではSpace /
+              Enterの短押しで呼び出し、長押しで登録できます。
+            </p>
+          </section>
+        </details>
+      </div>
+    </dialog>
+  </body>
 </html>

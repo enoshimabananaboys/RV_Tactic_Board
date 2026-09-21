@@ -1,503 +1,907 @@
-// Isotropic portrait coordinates keep ray intersections independent of orientation.
-function aimPolygon(ball, defenders, bounds, attackY, goalY) {
-  const direction = Math.sign(goalY-ball.y);
-  const first = Math.atan2(bounds.left-ball.x,Math.abs(attackY-ball.y));
-  const last = Math.atan2(bounds.right-ball.x,Math.abs(attackY-ball.y));
-  const points = [ball];
-  for (let i=0;i<=720;i++) {
-    const angle = first+(last-first)*i/720;
-    const dx = Math.sin(angle), dy = direction*Math.cos(angle);
-    let distance = (goalY-ball.y)/dy;
-    if (dx > 1e-9) distance = Math.min(distance,(bounds.right-ball.x)/dx);
-    if (dx < -1e-9) distance = Math.min(distance,(bounds.left-ball.x)/dx);
-    for (const player of defenders) {
-      const x = player.x-ball.x, y = player.y-ball.y;
-      const dot = x*dx+y*dy;
-      const discriminant = player.radius**2-(x*x+y*y-dot*dot);
-      if (x*x+y*y <= player.radius**2) { distance = 0; break; }
-      if (discriminant < 0) continue;
-      const near = dot-Math.sqrt(discriminant);
-      if (near >= 0) distance = Math.min(distance,near);
-    }
-    points.push({x:ball.x+dx*Math.max(0,distance),y:ball.y+dy*Math.max(0,distance)});
-  }
-  return points;
-}
-
 (() => {
-  'use strict';
-  const $ = id => document.getElementById(id);
-  const KEY = 'rv-tactic-board-v1';
-  const initial = () => ({ opponents: true, pieces: [
-    ...[[72,82],[50,82],[28,82],[72,57.5],[50,57.5],[28,57.5]].map(([x,y],i) => ({id:`home-${i+1}`,team:'home',number:i+1,x,y})),
-    ...[[28,18],[50,18],[72,18],[28,42.5],[50,42.5],[72,42.5]].map(([x,y],i) => ({id:`away-${i+1}`,team:'opponent',number:i+1,x,y})),
-    {id:'ball',team:'ball',number:0,x:50,y:73}
-  ], arrows: [] });
-  let state = initial(), landscape = false, zoom = 1;
-  let pinch = null, lastCourtTap = null;
+  "use strict";
+  // 操作の時間・距離はここに集約する。変更時は使い方とREADMEも更新する。
+  const TIMING = {
+    arrowHold: 500,
+    arrowLifetime: 5000,
+    aimLifetime: 5000,
+    slotHold: 650,
+    notice: 3500,
+    doubleTap: 450,
+  };
+  const LIMITS = {
+    history: 60,
+    zoom: 3,
+    touchSlop: 24,
+    mouseSlop: 10,
+    doubleTapDistance: 40,
+  };
+  const { aimPolygon, createInitialState, isValidState, createDefaultSlots } =
+    BoardModel;
+  const $ = (id) => document.getElementById(id);
+  const KEY = "rv-tactic-board-v1";
+
+  // 配置・表示状態・指ごとの操作を分ける。一時矢印は履歴に含めない。
+  let state = createInitialState(),
+    landscape = false,
+    zoom = 1;
+  let pinch = null,
+    lastCourtTap = null;
   const gestures = new Map();
   let gestureBefore = null;
-  let aimVisibleUntil = 0, aimTimer;
+  let aimVisibleUntil = 0,
+    aimTimer;
   function keepAimBriefly() {
     clearTimeout(aimTimer);
-    aimVisibleUntil = Date.now()+5000;
-    aimTimer = setTimeout(() => { aimVisibleUntil = 0; drawAim(); },5000);
+    aimVisibleUntil = Date.now() + TIMING.aimLifetime;
+    aimTimer = setTimeout(() => {
+      aimVisibleUntil = 0;
+      drawAim();
+    }, TIMING.aimLifetime);
   }
-  $('aim-visibility').onchange = () => {
+  $("aim-visibility").onchange = () => {
     clearTimeout(aimTimer);
     aimVisibleUntil = 0;
     drawAim();
   };
   let temporaryArrows = [];
   let expiryTimer;
+  let arrowExpiryPaused = false;
+  // 長押し成立から描画終了まで、既存の一時線も保持する。
+  // 中断や複数指パンへの切替でも解除し、消去を止めたままにしない。
+  function updateArrowExpiryPause() {
+    const drawing = [...gestures.values()].some(
+      (g) => g.drawing && !g.scrolling,
+    );
+    if (drawing && !arrowExpiryPaused) {
+      temporaryArrows = temporaryArrows.filter((a) => a.expiresAt > Date.now());
+    } else if (!drawing && arrowExpiryPaused) {
+      const expiresAt = Date.now() + TIMING.arrowLifetime;
+      temporaryArrows.forEach((a) => (a.expiresAt = expiresAt));
+    }
+    arrowExpiryPaused = drawing;
+    scheduleExpiry();
+  }
+  // 全一時矢印の期限は描画完了時に揃え、タイマーは1本だけ管理する。
   function scheduleExpiry() {
     clearTimeout(expiryTimer);
-    temporaryArrows = temporaryArrows.filter(a => a.expiresAt > Date.now());
-    if (temporaryArrows.length) expiryTimer = setTimeout(() => {
-      scheduleExpiry();
-      drawArrows();
-    },Math.max(0,Math.min(...temporaryArrows.map(a => a.expiresAt))-Date.now()));
+    if (arrowExpiryPaused) return;
+    temporaryArrows = temporaryArrows.filter((a) => a.expiresAt > Date.now());
+    if (temporaryArrows.length)
+      expiryTimer = setTimeout(
+        () => {
+          scheduleExpiry();
+          drawArrows();
+        },
+        Math.max(
+          0,
+          Math.min(...temporaryArrows.map((a) => a.expiresAt)) - Date.now(),
+        ),
+      );
   }
-  const undo = [], redo = [];
-  const copy = value => JSON.parse(JSON.stringify(value));
+  const undo = [],
+    redo = [];
+  const copy = (value) => JSON.parse(JSON.stringify(value));
   let noticeTimer;
-  const announce = message => {
-    $('status').textContent = message;
-    // Routine movement hints remain accessible without taking up court space.
-    const show = /保存しました|保存した配置を開きました|ありません|できません|読み込めません|初期値に戻しました/.test(message);
-    $('status').classList.toggle('notice',show);
+  const announce = (message) => {
+    $("status").textContent = message;
+    // 通常の操作通知は読み上げ領域に留め、保存結果や失敗だけを画面に表示する。
+    const show =
+      /保存しました|保存した配置を開きました|ありません|できません|読み込めません|初期値に戻しました/.test(
+        message,
+      );
+    $("status").classList.toggle("notice", show);
     clearTimeout(noticeTimer);
-    if (show) noticeTimer = setTimeout(() => $('status').classList.remove('notice'),3500);
+    if (show)
+      noticeTimer = setTimeout(
+        () => $("status").classList.remove("notice"),
+        TIMING.notice,
+      );
   };
-  $('toggle-tools').onclick = () => {
-    const open = $('tool-panel').hidden;
-    $('tool-panel').hidden = !open;
-    $('toggle-tools').setAttribute('aria-expanded',open);
+  // ツールと説明ダイアログ：閉じるタップをコート操作へ流さない。
+  $("toggle-tools").onclick = () => {
+    const open = $("tool-panel").hidden;
+    $("tool-panel").hidden = !open;
+    $("toggle-tools").setAttribute("aria-expanded", open);
   };
   function openHelp() {
     dismissedByPointer = false;
-    if (!$('help-dialog').open) $('help-dialog').showModal();
-    document.querySelector('.help-content').scrollTop = 0;
+    if (!$("help-dialog").open) $("help-dialog").showModal();
+    document.querySelector(".help-content").scrollTop = 0;
   }
-  $('open-help').onclick = openHelp;
-  // Touch taps may not produce a click after small finger motion on a scrollable panel.
+  $("open-help").onclick = openHelp;
+  // スクロール可能なパネルでは微小な指の動きでclickが省略されるためpointerupも扱う。
   let helpTouch = null;
-  $('open-help').addEventListener('pointerdown',event => {
-    helpTouch = event.pointerType === 'touch' ? {id:event.pointerId,x:event.clientX,y:event.clientY} : null;
+  $("open-help").addEventListener("pointerdown", (event) => {
+    helpTouch =
+      event.pointerType === "touch"
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
   });
-  $('open-help').addEventListener('pointermove',event => {
-    if (helpTouch && Math.hypot(event.clientX-helpTouch.x,event.clientY-helpTouch.y)>18) helpTouch = null;
+  $("open-help").addEventListener("pointermove", (event) => {
+    if (
+      helpTouch &&
+      Math.hypot(event.clientX - helpTouch.x, event.clientY - helpTouch.y) > 18
+    )
+      helpTouch = null;
   });
-  $('open-help').addEventListener('pointercancel',() => { helpTouch = null; });
-  $('open-help').addEventListener('pointerup',event => {
+  $("open-help").addEventListener("pointercancel", () => {
+    helpTouch = null;
+  });
+  $("open-help").addEventListener("pointerup", (event) => {
     if (helpTouch?.id !== event.pointerId) return;
     helpTouch = null;
-    const rect = $('open-help').getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return;
+    const rect = $("open-help").getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    )
+      return;
     event.preventDefault();
     openHelp();
   });
   let helpBackdropPointer = null;
-  const outsideHelp = event => {
-    const rect = $('help-dialog').getBoundingClientRect();
-    return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+  const outsideHelp = (event) => {
+    const rect = $("help-dialog").getBoundingClientRect();
+    return (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    );
   };
-  $('help-dialog').addEventListener('pointerdown',event => {
-    helpBackdropPointer = event.target === $('help-dialog') && outsideHelp(event) ? event.pointerId : null;
+  $("help-dialog").addEventListener("pointerdown", (event) => {
+    helpBackdropPointer =
+      event.target === $("help-dialog") && outsideHelp(event)
+        ? event.pointerId
+        : null;
   });
-  $('help-dialog').addEventListener('pointercancel',() => { helpBackdropPointer = null; });
-  $('help-dialog').addEventListener('click',event => {
-    if (helpBackdropPointer !== null && event.target === $('help-dialog') && outsideHelp(event)) $('help-dialog').close();
+  $("help-dialog").addEventListener("pointercancel", () => {
     helpBackdropPointer = null;
   });
-  $('close-help').onclick = () => $('help-dialog').close();
-  $('help-dialog').addEventListener('close',() => $('open-help').focus({preventScroll:true}));
+  $("help-dialog").addEventListener("click", (event) => {
+    if (
+      helpBackdropPointer !== null &&
+      event.target === $("help-dialog") &&
+      outsideHelp(event)
+    )
+      $("help-dialog").close();
+    helpBackdropPointer = null;
+  });
+  $("close-help").onclick = () => $("help-dialog").close();
+  $("help-dialog").addEventListener("close", () =>
+    $("open-help").focus({ preventScroll: true }),
+  );
   function closeTools() {
-    $('tool-panel').hidden = true;
-    $('toggle-tools').setAttribute('aria-expanded','false');
-    $('toggle-tools').focus({preventScroll:true});
+    $("tool-panel").hidden = true;
+    $("toggle-tools").setAttribute("aria-expanded", "false");
+    $("toggle-tools").focus({ preventScroll: true });
   }
   let dismissedByPointer = false;
-  document.addEventListener('pointerdown',event => {
-    dismissedByPointer = false;
-    if ($('help-dialog').open) return;
-    if ($('tool-panel').hidden || $('tool-panel').contains(event.target) || $('toggle-tools').contains(event.target)) return;
-    if (event.target.closest('.board-heading')) { closeTools(); return; }
-    dismissedByPointer = true;
-    closeTools();
-    event.preventDefault();
-    event.stopPropagation();
-  },true);
-  // Consume the click following dismissal, including clicks on other controls.
-  document.addEventListener('click',event => {
-    if (!dismissedByPointer || event.detail === 0) return;
-    dismissedByPointer = false;
-    event.preventDefault();
-    event.stopPropagation();
-  },true);
-  document.addEventListener('keydown',event => {
-    if ($('help-dialog').open) return;
-    if (event.key === 'Escape' && !$('tool-panel').hidden) {
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      dismissedByPointer = false;
+      if ($("help-dialog").open) return;
+      if (
+        $("tool-panel").hidden ||
+        $("tool-panel").contains(event.target) ||
+        $("toggle-tools").contains(event.target)
+      )
+        return;
+      if (event.target.closest(".board-heading")) {
+        closeTools();
+        return;
+      }
+      dismissedByPointer = true;
+      closeTools();
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true,
+  );
+  // パネルを閉じた直後のclickを消費し、背後のボタンの誤操作を防ぐ。
+  document.addEventListener(
+    "click",
+    (event) => {
+      if (!dismissedByPointer || event.detail === 0) return;
+      dismissedByPointer = false;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true,
+  );
+  document.addEventListener("keydown", (event) => {
+    if ($("help-dialog").open) return;
+    if (event.key === "Escape" && !$("tool-panel").hidden) {
       closeTools();
       event.preventDefault();
     }
   });
-  function remember(previous) { undo.push(previous); if (undo.length > 60) undo.shift(); redo.length = 0; }
-  function historyButtons() { $('undo').disabled = !undo.length; $('redo').disabled = !redo.length; }
-  // Stored coordinates always use the portrait court: home at the bottom.
-  const screenPoint = p => landscape ? {x:100-p.y,y:p.x} : p;
-  const courtPoint = p => landscape ? {x:p.y,y:100-p.x} : p;
+  function remember(previous) {
+    undo.push(previous);
+    if (undo.length > LIMITS.history) undo.shift();
+    redo.length = 0;
+  }
+  function historyButtons() {
+    $("undo").disabled = !undo.length;
+    $("redo").disabled = !redo.length;
+  }
+  // 保存座標は常に縦向き（味方が下）。横向きへの変換は描画・入力の境界で行う。
+  const screenPoint = (p) => (landscape ? { x: 100 - p.y, y: p.x } : p);
+  const courtPoint = (p) => (landscape ? { x: p.y, y: 100 - p.x } : p);
   function constrainPiece(p) {
-    p.x = Math.max(7,Math.min(93,p.x));
-    p.y = Math.max(5,Math.min(95,p.y));
-    if (p.team === 'ball') return;
-    const rect = $('court').getBoundingClientRect();
-    const diameter = parseFloat(getComputedStyle($('court')).getPropertyValue('--piece-size'));
-    const clearance = Math.min(7.4,(diameter / 2 + 1) / (landscape ? rect.width : rect.height) * 100);
+    p.x = Math.max(7, Math.min(93, p.x));
+    p.y = Math.max(5, Math.min(95, p.y));
+    if (p.team === "ball") return;
+    const rect = $("court").getBoundingClientRect();
+    const diameter = parseFloat(
+      getComputedStyle($("court")).getPropertyValue("--piece-size"),
+    );
+    const clearance = Math.min(
+      7.4,
+      ((diameter / 2 + 1) / (landscape ? rect.width : rect.height)) * 100,
+    );
     const front = p.number >= 4;
-    const [min,max] = p.team === 'home'
-      ? (front ? [50+clearance,65-clearance] : [65+clearance,95])
-      : (front ? [35+clearance,50-clearance] : [5,35-clearance]);
-    p.y = Math.max(min,Math.min(max,p.y));
+    const [min, max] =
+      p.team === "home"
+        ? front
+          ? [50 + clearance, 65 - clearance]
+          : [65 + clearance, 95]
+        : front
+          ? [35 + clearance, 50 - clearance]
+          : [5, 35 - clearance];
+    p.y = Math.max(min, Math.min(max, p.y));
   }
-  function placePiece(button,p) {
+  function placePiece(button, p) {
     const display = screenPoint(p);
-    button.style.left = `${display.x}%`; button.style.top = `${display.y}%`;
+    button.style.left = `${display.x}%`;
+    button.style.top = `${display.y}%`;
   }
+  // SVGは確定線・一時線・描画プレビューを重ねて表示する。
   function drawArrows() {
-    const previews = [...gestures.values()].filter(g => !g.piece && !g.scrolling && g.end).map(g => ({x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y}));
-    $('arrow-lines').replaceChildren();
-    [...state.arrows, ...temporaryArrows.filter(a => a.expiresAt > Date.now()), ...previews].forEach(a => {
-      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-      const start = screenPoint({x:a.x1,y:a.y1}), end = screenPoint({x:a.x2,y:a.y2});
-      const scaleX = landscape ? 86/45 : 1, scaleY = landscape ? 1 : 86/45;
-      Object.entries({x1:start.x*scaleX,y1:start.y*scaleY,x2:end.x*scaleX,y2:end.y*scaleY,stroke:'#fff5c2','stroke-width':.8,'stroke-linecap':'round','marker-end':'url(#arrowhead)'}).forEach(([k,v]) => line.setAttribute(k,v));
-      $('arrow-lines').append(line);
+    const previews = [...gestures.values()]
+      .filter((g) => !g.piece && !g.scrolling && g.end)
+      .map((g) => ({ x1: g.start.x, y1: g.start.y, x2: g.end.x, y2: g.end.y }));
+    $("arrow-lines").replaceChildren();
+    [
+      ...state.arrows,
+      ...temporaryArrows.filter(
+        (a) => arrowExpiryPaused || a.expiresAt > Date.now(),
+      ),
+      ...previews,
+    ].forEach((a) => {
+      const line = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "line",
+      );
+      const start = screenPoint({ x: a.x1, y: a.y1 }),
+        end = screenPoint({ x: a.x2, y: a.y2 });
+      const scaleX = landscape ? 86 / 45 : 1,
+        scaleY = landscape ? 1 : 86 / 45;
+      Object.entries({
+        x1: start.x * scaleX,
+        y1: start.y * scaleY,
+        x2: end.x * scaleX,
+        y2: end.y * scaleY,
+        stroke: "#fff5c2",
+        "stroke-width": 0.8,
+        "stroke-linecap": "round",
+        "marker-end": "url(#arrowhead)",
+      }).forEach(([k, v]) => line.setAttribute(k, v));
+      $("arrow-lines").append(line);
     });
   }
+  // Canvasは画面密度に合わせ、選手の円を最後にくり抜く。
   function drawAim() {
-    const canvas = $('aim-overlay');
-    const ball = state.pieces.find(p => p.team === 'ball');
-    canvas.hidden = $('aim-visibility').value !== 'always' && ![...gestures.values()].some(g => g.piece?.team === 'ball') && Date.now() >= aimVisibleUntil;
+    const canvas = $("aim-overlay");
+    const ball = state.pieces.find((p) => p.team === "ball");
+    canvas.hidden =
+      $("aim-visibility").value !== "always" &&
+      ![...gestures.values()].some((g) => g.piece?.team === "ball") &&
+      Date.now() >= aimVisibleUntil;
     if (canvas.hidden) return;
-    const rect = $('court').getBoundingClientRect();
+    const rect = $("court").getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
-    canvas.width = Math.round(rect.width*ratio);
-    canvas.height = Math.round(rect.height*ratio);
-    const ctx = canvas.getContext('2d');
-    ctx.scale(ratio,ratio);
+    canvas.width = Math.round(rect.width * ratio);
+    canvas.height = Math.round(rect.height * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
     const width = landscape ? rect.height : rect.width;
     const height = landscape ? rect.width : rect.height;
-    const toPixel = p => ({x:p.x*width/100,y:p.y*height/100});
-    const target = ball.y >= 50 ? 'opponent' : 'home';
-    const radius = parseFloat(getComputedStyle($('court')).getPropertyValue('--piece-size'))/2;
-    const defenders = state.pieces.filter(p => p.team === target).map(p => ({...toPixel(p),radius}));
-    const points = aimPolygon(toPixel(ball),defenders,{left:width*.07,right:width*.93},height*(target === 'opponent' ? .35 : .65),height*(target === 'opponent' ? .05 : .95));
-    if (landscape) { ctx.translate(height,0); ctx.rotate(Math.PI/2); }
+    const toPixel = (p) => ({
+      x: (p.x * width) / 100,
+      y: (p.y * height) / 100,
+    });
+    const target = ball.y >= 50 ? "opponent" : "home";
+    const radius =
+      parseFloat(
+        getComputedStyle($("court")).getPropertyValue("--piece-size"),
+      ) / 2;
+    const defenders = state.pieces
+      .filter((p) => p.team === target)
+      .map((p) => ({ ...toPixel(p), radius }));
+    const points = aimPolygon(
+      toPixel(ball),
+      defenders,
+      { left: width * 0.07, right: width * 0.93 },
+      height * (target === "opponent" ? 0.35 : 0.65),
+      height * (target === "opponent" ? 0.05 : 0.95),
+    );
+    if (landscape) {
+      ctx.translate(height, 0);
+      ctx.rotate(Math.PI / 2);
+    }
     ctx.beginPath();
-    points.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+    points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 221, 92, 0.32)';
+    ctx.fillStyle = "rgba(255, 221, 92, 0.32)";
     ctx.fill();
-    ctx.globalCompositeOperation = 'destination-out';
-    for (const p of defenders) { ctx.beginPath(); ctx.arc(p.x,p.y,p.radius,0,Math.PI*2); ctx.fill(); }
+    ctx.globalCompositeOperation = "destination-out";
+    for (const p of defenders) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   function updatePieceSize() {
-    const rect = $('court').getBoundingClientRect();
-    // The playable court is 9 m wide: 86% of portrait width (landscape height).
-    const diameter = (landscape ? rect.height : rect.width)*0.86/9;
-    $('court').style.setProperty('--piece-size',`${diameter}px`);
+    const rect = $("court").getBoundingClientRect();
+    // 競技領域の幅9mは、縦表示の幅（横表示の高さ）の86%に相当する。
+    const diameter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
+    $("court").style.setProperty("--piece-size", `${diameter}px`);
   }
   function render() {
     updatePieceSize();
     state.pieces.forEach(constrainPiece);
-    $('pieces').replaceChildren();
+    $("pieces").replaceChildren();
     state.opponents = true;
-    state.pieces.forEach(p => {
-      const button = document.createElement('button');
-      button.className = `piece ${p.team}`; button.dataset.id = p.id;
-      button.textContent = p.team === 'ball' ? '' : p.number;
-      button.setAttribute('aria-label', p.team === 'ball' ? 'ボール' : `${p.team === 'home' ? '味方' : '相手'} ${p.number}番`);
-      button.title = 'ドラッグで移動・矢印キーで微調整';
-      placePiece(button,p);
-      $('pieces').append(button);
+    state.pieces.forEach((p) => {
+      const button = document.createElement("button");
+      button.className = `piece ${p.team}`;
+      button.dataset.id = p.id;
+      button.textContent = p.team === "ball" ? "" : p.number;
+      button.setAttribute(
+        "aria-label",
+        p.team === "ball"
+          ? "ボール"
+          : `${p.team === "home" ? "味方" : "相手"} ${p.number}番`,
+      );
+      button.title = "ドラッグで移動・矢印キーで微調整";
+      placePiece(button, p);
+      $("pieces").append(button);
     });
-    drawArrows(); historyButtons(); drawAim();
+    drawArrows();
+    historyButtons();
+    drawAim();
   }
   function point(event) {
-    const r = $('court').getBoundingClientRect();
-    const p = courtPoint({x:(event.clientX-r.left)/r.width*100,y:(event.clientY-r.top)/r.height*100});
-    return {x:Math.max(7,Math.min(93,p.x)),y:Math.max(5,Math.min(95,p.y))};
+    const r = $("court").getBoundingClientRect();
+    const p = courtPoint({
+      x: ((event.clientX - r.left) / r.width) * 100,
+      y: ((event.clientY - r.top) / r.height) * 100,
+    });
+    return {
+      x: Math.max(7, Math.min(93, p.x)),
+      y: Math.max(5, Math.min(95, p.y)),
+    };
   }
+  // CSSの外周余白20px×2を除いた領域に、コート全体を収める倍率。
+  function applyZoom() {
+    document
+      .querySelector(".court-wrap")
+      .style.setProperty("--court-zoom", zoom);
+  }
+
+  function panCourt(dx, dy) {
+    const viewport = document.querySelector(".court-scroll");
+    viewport.scrollLeft -= dx;
+    viewport.scrollTop -= dy;
+  }
+
+  function showHomeCourt() {
+    const viewport = document.querySelector(".court-scroll");
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = landscape ? 0 : viewport.scrollHeight;
+  }
+
   function minimumZoom() {
-    const viewport = document.querySelector('.court-scroll');
-    const width = Math.max(1,viewport.clientWidth-40), height = Math.max(1,viewport.clientHeight-40);
-    return Math.min(1,landscape ? width/(height*86/45) : height/(width*86/45));
+    const viewport = document.querySelector(".court-scroll");
+    const width = Math.max(1, viewport.clientWidth - 40),
+      height = Math.max(1, viewport.clientHeight - 40);
+    return Math.min(
+      1,
+      landscape ? width / ((height * 86) / 45) : height / ((width * 86) / 45),
+    );
   }
   function toggleCourtFit() {
-    zoom = Math.abs(zoom-minimumZoom())<.02 ? 1 : minimumZoom();
-    document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
+    zoom = Math.abs(zoom - minimumZoom()) < 0.02 ? 1 : minimumZoom();
+    applyZoom();
     render();
-    const viewport = document.querySelector('.court-scroll');
-    viewport.scrollLeft = 0;
-    viewport.scrollTop = landscape ? 0 : viewport.scrollHeight;
+    showHomeCourt();
   }
-  function setOrientation(id) {
+  function setOrientation(id, fitWholeCourt = false) {
     if (gestures.size) return;
     lastCourtTap = null;
-    landscape = id === 'landscape';
+    landscape = id === "landscape";
     zoom = 1;
-    document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
-    document.querySelector('.workspace').classList.toggle('landscape',landscape);
-    $('arrows').setAttribute('viewBox',landscape ? '0 0 191.111111 100' : '0 0 100 191.111111');
-    $('portrait').setAttribute('aria-pressed',!landscape);
-    $('landscape').setAttribute('aria-pressed',landscape);
+    applyZoom();
+    document
+      .querySelector(".workspace")
+      .classList.toggle("landscape", landscape);
+    if (fitWholeCourt) {
+      zoom = minimumZoom();
+      applyZoom();
+    }
+    $("arrows").setAttribute(
+      "viewBox",
+      landscape ? "0 0 191.111111 100" : "0 0 100 191.111111",
+    );
+    $("portrait").setAttribute("aria-pressed", !landscape);
+    $("landscape").setAttribute("aria-pressed", landscape);
     render();
-    const viewport = document.querySelector('.court-scroll');
-    viewport.scrollLeft = 0;
-    viewport.scrollTop = landscape ? 0 : viewport.scrollHeight;
-    announce(landscape ? '横向き：左が味方、右が相手コートです。' : '縦向き：下が味方、上が相手コートです。');
+    showHomeCourt();
+    announce(
+      landscape
+        ? "横向き：左が味方、右が相手コートです。"
+        : "縦向き：下が味方、上が相手コートです。",
+    );
   }
-  ['portrait','landscape'].forEach(id => $(id).onclick = () => setOrientation(id));
-  window.addEventListener('resize',() => { lastCourtTap = null; zoom = Math.max(minimumZoom(),zoom); document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom); updatePieceSize(); if (!gestures.size) render(); else drawAim(); });
+  ["portrait", "landscape"].forEach(
+    (id) => ($(id).onclick = () => setOrientation(id)),
+  );
+  window.addEventListener("resize", () => {
+    lastCourtTap = null;
+    zoom = Math.max(minimumZoom(), zoom);
+    applyZoom();
+    updatePieceSize();
+    if (!gestures.size) render();
+    else drawAim();
+  });
+  // 駒を動かす指は除外し、コート操作の重心と半径でパン・ピンチを計算する。
   function touchGeometry() {
-    const touches = [...gestures.values()].filter(g => g.scrolling);
+    const touches = [...gestures.values()].filter((g) => g.scrolling);
     if (touches.length < 2) return null;
-    const x = touches.reduce((sum,g) => sum+g.clientX,0)/touches.length;
-    const y = touches.reduce((sum,g) => sum+g.clientY,0)/touches.length;
-    const radius = Math.sqrt(touches.reduce((sum,g) => sum+(g.clientX-x)**2+(g.clientY-y)**2,0)/touches.length);
-    return {x,y,radius};
+    const x = touches.reduce((sum, g) => sum + g.clientX, 0) / touches.length;
+    const y = touches.reduce((sum, g) => sum + g.clientY, 0) / touches.length;
+    const radius = Math.sqrt(
+      touches.reduce(
+        (sum, g) => sum + (g.clientX - x) ** 2 + (g.clientY - y) ** 2,
+        0,
+      ) / touches.length,
+    );
+    return { x, y, radius };
   }
   function resetPinch() {
     const geometry = touchGeometry();
-    const rect = $('court').getBoundingClientRect();
-    pinch = geometry ? {...geometry,zoom,u:(geometry.x-rect.left)/rect.width,v:(geometry.y-rect.top)/rect.height} : null;
+    const rect = $("court").getBoundingClientRect();
+    pinch = geometry
+      ? {
+          ...geometry,
+          zoom,
+          u: (geometry.x - rect.left) / rect.width,
+          v: (geometry.y - rect.top) / rect.height,
+        }
+      : null;
   }
-  $('court').addEventListener('pointerdown',event => {
+  // 待機 → 長押し描画／1本指パン／複数指パンの順に操作を分岐する。
+  function startCourtGesture(event) {
     if (gestures.has(event.pointerId) || event.button !== 0) return;
-    const target = event.target.closest('.piece');
+    const target = event.target.closest(".piece");
     event.preventDefault();
-    const start = point(event), piece = target ? state.pieces.find(p => p.id === target.dataset.id) : null;
-    if (piece && [...gestures.values()].some(g => g.piece === piece)) return;
+    const start = point(event),
+      piece = target
+        ? state.pieces.find((p) => p.id === target.dataset.id)
+        : null;
+    if (piece && [...gestures.values()].some((g) => g.piece === piece)) return;
     if (!gestures.size) gestureBefore = copy(state);
-    gestures.set(event.pointerId,{pointer:event.pointerId,tapStarted:Date.now(),tapX:event.clientX,tapY:event.clientY,tapMoved:false,pointerType:event.pointerType,clientX:event.clientX,clientY:event.clientY,scrolling:false,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
-    const touches = [...gestures.values()].filter(g => !g.piece && g.pointerType === 'touch');
-    if (touches.length >= 2 || touches.some(g => g.scrolling)) {
-      touches.forEach(g => { g.scrolling = true; delete g.end; });
+    gestures.set(event.pointerId, {
+      pointer: event.pointerId,
+      tapStarted: Date.now(),
+      tapX: event.clientX,
+      tapY: event.clientY,
+      tapMoved: false,
+      pointerType: event.pointerType,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      scrolling: false,
+      start,
+      original: piece ? copy(piece) : null,
+      piece,
+      target,
+      temporary: $("line-lifetime").value === "temporary",
+      offset: piece ? { x: piece.x - start.x, y: piece.y - start.y } : null,
+    });
+    const pending = gestures.get(event.pointerId);
+    if (!piece)
+      pending.holdTimer = setTimeout(() => {
+        if (pending.scrolling || pending.panning) return;
+        pending.drawing = true;
+        updateArrowExpiryPause();
+        pending.tapMoved = true;
+        lastCourtTap = null;
+      }, TIMING.arrowHold);
+    const touches = [...gestures.values()].filter(
+      (g) => !g.piece && g.pointerType === "touch",
+    );
+    if (touches.length >= 2 || touches.some((g) => g.scrolling)) {
+      touches.forEach((g) => {
+        clearTimeout(g.holdTimer);
+        g.scrolling = true;
+        delete g.end;
+      });
+      updateArrowExpiryPause();
       drawArrows();
       resetPinch();
     }
-    if (piece || gestures.size > 1) { lastCourtTap = null; gestures.forEach(g => g.tapMoved = true); }
-    if (target) { target.focus({preventScroll:true}); target.classList.add('dragging'); }
-    $('court').setPointerCapture(event.pointerId);
+    if (piece || gestures.size > 1) {
+      lastCourtTap = null;
+      gestures.forEach((g) => (g.tapMoved = true));
+    }
+    if (target) {
+      target.focus({ preventScroll: true });
+      target.classList.add("dragging");
+    }
+    $("court").setPointerCapture(event.pointerId);
     drawAim();
-  });
-  $('court').addEventListener('pointermove',event => {
+  }
+  function moveCourtGesture(event) {
     const gesture = gestures.get(event.pointerId);
     if (!gesture) return;
-    if (Math.hypot(event.clientX-gesture.tapX,event.clientY-gesture.tapY)>(gesture.pointerType === 'touch' ? 24 : 10)) gesture.tapMoved = true;
-    gesture.clientX = event.clientX; gesture.clientY = event.clientY;
+    const dx = event.clientX - gesture.clientX,
+      dy = event.clientY - gesture.clientY;
+    if (
+      Math.hypot(event.clientX - gesture.tapX, event.clientY - gesture.tapY) >
+      (gesture.pointerType === "touch" ? LIMITS.touchSlop : LIMITS.mouseSlop)
+    )
+      gesture.tapMoved = true;
+    gesture.clientX = event.clientX;
+    gesture.clientY = event.clientY;
     if (gesture.scrolling) {
       const geometry = touchGeometry();
       if (geometry && pinch) {
-        zoom = Math.max(minimumZoom(),Math.min(3,pinch.zoom*geometry.radius/Math.max(1,pinch.radius)));
-        document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
-        const viewport = document.querySelector('.court-scroll');
-        const rect = $('court').getBoundingClientRect();
-        viewport.scrollLeft += rect.left+pinch.u*rect.width-geometry.x;
-        viewport.scrollTop += rect.top+pinch.v*rect.height-geometry.y;
+        zoom = Math.max(
+          minimumZoom(),
+          Math.min(
+            LIMITS.zoom,
+            (pinch.zoom * geometry.radius) / Math.max(1, pinch.radius),
+          ),
+        );
+        applyZoom();
+        const viewport = document.querySelector(".court-scroll");
+        const rect = $("court").getBoundingClientRect();
+        viewport.scrollLeft += rect.left + pinch.u * rect.width - geometry.x;
+        viewport.scrollTop += rect.top + pinch.v * rect.height - geometry.y;
         updatePieceSize();
         drawAim();
+      } else {
+        panCourt(dx, dy);
       }
       return;
     }
     const p = point(event);
     if (gesture.piece) {
-      gesture.piece.x = p.x+gesture.offset.x; gesture.piece.y = p.y+gesture.offset.y;
+      gesture.piece.x = p.x + gesture.offset.x;
+      gesture.piece.y = p.y + gesture.offset.y;
       constrainPiece(gesture.piece);
-      placePiece(gesture.target,gesture.piece);
+      placePiece(gesture.target, gesture.piece);
       drawAim();
-    } else if (gesture.tapMoved) { gesture.end = p; drawArrows(); }
-  });
-  function finish(event,cancel = false) {
+    } else if (gesture.drawing) {
+      gesture.end = p;
+      drawArrows();
+    } else if (gesture.tapMoved) {
+      clearTimeout(gesture.holdTimer);
+      panCourt(
+        gesture.panning ? dx : event.clientX - gesture.tapX,
+        gesture.panning ? dy : event.clientY - gesture.tapY,
+      );
+      gesture.panning = true;
+    }
+  }
+  // 中断はその指の移動だけを戻す。最後の指を離した時点で履歴を確定する。
+  function finishCourtGesture(event, cancel = false) {
     const g = gestures.get(event.pointerId);
     if (!g) return;
-    const isTap = !cancel && !g.piece && !g.scrolling && !g.tapMoved && !g.end && Date.now()-g.tapStarted<500;
-    const doubleTap = isTap && lastCourtTap && g.tapStarted-lastCourtTap.time<450 && Math.hypot(event.clientX-lastCourtTap.x,event.clientY-lastCourtTap.y)<40;
-    lastCourtTap = isTap && !doubleTap ? {time:Date.now(),x:event.clientX,y:event.clientY} : null;
+    clearTimeout(g.holdTimer);
+    const isTap =
+      !cancel &&
+      !g.piece &&
+      !g.scrolling &&
+      !g.tapMoved &&
+      !g.end &&
+      Date.now() - g.tapStarted < TIMING.arrowHold;
+    const doubleTap =
+      isTap &&
+      lastCourtTap &&
+      g.tapStarted - lastCourtTap.time < TIMING.doubleTap &&
+      Math.hypot(
+        event.clientX - lastCourtTap.x,
+        event.clientY - lastCourtTap.y,
+      ) < LIMITS.doubleTapDistance;
+    lastCourtTap =
+      isTap && !doubleTap
+        ? { time: Date.now(), x: event.clientX, y: event.clientY }
+        : null;
     gestures.delete(event.pointerId);
     if (g.scrolling) resetPinch();
-    if (g.piece?.team === 'ball') {
-      if (cancel) { clearTimeout(aimTimer); aimVisibleUntil = 0; }
-      else keepAimBriefly();
+    if (g.piece?.team === "ball") {
+      if (cancel) {
+        clearTimeout(aimTimer);
+        aimVisibleUntil = 0;
+      } else keepAimBriefly();
     }
     if (cancel) {
-      if (g.piece) { Object.assign(g.piece,g.original); placePiece(g.target,g.piece); }
-    }
-    else {
-      if (!g.piece && !g.scrolling && g.end && Math.hypot(g.end.x-g.start.x,g.end.y-g.start.y)>2) {
-        const arrow = {x1:g.start.x,y1:g.start.y,x2:g.end.x,y2:g.end.y};
-        if (g.temporary) { temporaryArrows.push({...arrow,expiresAt:Date.now()+5000}); scheduleExpiry(); }
-        else state.arrows.push(arrow);
+      if (g.piece) {
+        Object.assign(g.piece, g.original);
+        placePiece(g.target, g.piece);
       }
-
+    } else {
+      if (
+        !g.piece &&
+        !g.scrolling &&
+        g.end &&
+        Math.hypot(g.end.x - g.start.x, g.end.y - g.start.y) > 2
+      ) {
+        const arrow = {
+          x1: g.start.x,
+          y1: g.start.y,
+          x2: g.end.x,
+          y2: g.end.y,
+        };
+        if (g.temporary) {
+          const expiresAt = Date.now() + TIMING.arrowLifetime;
+          temporaryArrows.forEach((a) => {
+            a.expiresAt = expiresAt;
+          });
+          temporaryArrows.push({ ...arrow, expiresAt });
+          scheduleExpiry();
+        } else state.arrows.push(arrow);
+      }
     }
-    g.target?.classList.remove('dragging');
-    if ($('court').hasPointerCapture(event.pointerId)) $('court').releasePointerCapture(event.pointerId);
+    updateArrowExpiryPause();
+    g.target?.classList.remove("dragging");
+    if ($("court").hasPointerCapture(event.pointerId))
+      $("court").releasePointerCapture(event.pointerId);
     if (!gestures.size) {
-      if (JSON.stringify(state)!==JSON.stringify(gestureBefore)) remember(gestureBefore);
+      if (JSON.stringify(state) !== JSON.stringify(gestureBefore))
+        remember(gestureBefore);
       gestureBefore = null;
       render();
-    } else { drawArrows(); drawAim(); }
+    } else {
+      drawArrows();
+      drawAim();
+    }
     if (doubleTap && !gestures.size) toggleCourtFit();
   }
-  $('court').addEventListener('pointerup',event => finish(event));
-  $('court').addEventListener('pointercancel',event => finish(event,true));
-  $('court').addEventListener('lostpointercapture',event => finish(event,true));
-  function change(fn,message) { if (gestures.size) return; const before = copy(state); fn(); if (JSON.stringify(before)!==JSON.stringify(state)) remember(before); render(); announce(message); }
-  $('clear').onclick = () => change(() => { state.arrows = []; temporaryArrows = []; scheduleExpiry(); },'線を消しました。');
-  $('reset').onclick = () => change(() => { state = initial(); temporaryArrows = []; scheduleExpiry(); },'初期配置に戻しました。元に戻すこともできます。');
-  function travel(from,to,message) { if (!from.length || gestures.size) return; to.push(copy(state)); state = from.pop(); render(); announce(message); }
-  $('undo').onclick = () => travel(undo,redo,'ひとつ前の状態に戻しました。');
-  $('redo').onclick = () => travel(redo,undo,'操作をやり直しました。');
-  function valid(s) {
-    const defaults = initial();
-    return s && typeof s.opponents === 'boolean' && Array.isArray(s.pieces) && s.pieces.length === 13 && defaults.pieces.every(p => s.pieces.filter(q => q.id === p.id && q.team === p.team && q.number === p.number && Number.isFinite(q.x) && q.x >= 7 && q.x <= 93 && Number.isFinite(q.y) && q.y >= 5 && q.y <= 95).length === 1) && Array.isArray(s.arrows) && s.arrows.length <= 10000 && s.arrows.every(a => a && ['x1','x2','y1','y2'].every(k => Number.isFinite(a[k]) && a[k] >= 0 && a[k] <= 100));
+  $("court").addEventListener("pointerdown", startCourtGesture);
+  $("court").addEventListener("pointermove", moveCourtGesture);
+  $("court").addEventListener("pointerup", (event) =>
+    finishCourtGesture(event),
+  );
+  $("court").addEventListener("pointercancel", (event) =>
+    finishCourtGesture(event, true),
+  );
+  $("court").addEventListener("lostpointercapture", (event) =>
+    finishCourtGesture(event, true),
+  );
+  function change(fn, message) {
+    if (gestures.size) return;
+    const before = copy(state);
+    fn();
+    if (JSON.stringify(before) !== JSON.stringify(state)) remember(before);
+    render();
+    announce(message);
   }
-  const SLOTS_KEY = KEY+'-slots';
-  function defaultSlots() {
-    const formation = (second,mirror) => {
-      const saved = initial();
-      const home = second
-        ? [[85.4,70.5],[57.8,70.5],[31.5,70.5],[71.6,60.5],[47.4,60.5],[21.6,60.5]]
-        : [[74.2,70.5],[57.8,70.5],[31.5,70.5],[85.2,60.5],[47.4,60.5],[21.6,60.5]];
-      saved.pieces.forEach(p => {
-        const [x,y] = p.team === 'ball' ? [second ? 60.7 : 65.1,54.6] : home[p.number-1];
-        p.x = mirror ? 100-x : x;
-        p.y = y;
-        // Both teams use the same formation from their own side of the net.
-        if (p.team === 'opponent') { p.x = 100-p.x; p.y = 100-p.y; }
-      });
-      return saved;
-    };
-    return [initial(),formation(false,false),formation(false,true),formation(true,false),formation(true,true)];
+  $("clear").onclick = () =>
+    change(() => {
+      state.arrows = [];
+      temporaryArrows = [];
+      scheduleExpiry();
+    }, "線を消しました。");
+  $("reset").onclick = () =>
+    change(() => {
+      state = createInitialState();
+      temporaryArrows = [];
+      scheduleExpiry();
+    }, "初期配置に戻しました。元に戻すこともできます。");
+  function travel(from, to, message) {
+    if (!from.length || gestures.size) return;
+    to.push(copy(state));
+    state = from.pop();
+    render();
+    announce(message);
   }
-  const slotButtons = [...document.querySelectorAll('.position-slot')];
-  const slotLabel = i => ['①','②','③','④','⑤'][i];
+  $("undo").onclick = () => travel(undo, redo, "ひとつ前の状態に戻しました。");
+  $("redo").onclick = () => travel(redo, undo, "操作をやり直しました。");
+  const SLOTS_KEY = KEY + "-slots";
+  const slotButtons = [...document.querySelectorAll(".position-slot")];
+  const slotLabel = (i) => ["①", "②", "③", "④", "⑤"][i];
+  // 新形式がない場合だけ旧1枠形式を読む。保存データを検証してから使用する。
   function readSlots() {
     const raw = localStorage.getItem(SLOTS_KEY);
     if (raw !== null) {
       const slots = JSON.parse(raw);
-      if (!Array.isArray(slots) || slots.length !== 5 || !slots.every(s => s === null || valid(s))) throw new Error('invalid slots');
-      return slots.map((slot,i) => slot || defaultSlots()[i]);
+      if (
+        !Array.isArray(slots) ||
+        slots.length !== 5 ||
+        !slots.every((s) => s === null || isValidState(s))
+      )
+        throw new Error("invalid slots");
+      return slots.map((slot, i) => slot || createDefaultSlots()[i]);
     }
-    const legacy = JSON.parse(localStorage.getItem(KEY) || 'null');
-    const slots = defaultSlots();
-    if (valid(legacy)) slots[0] = legacy;
+    const legacy = JSON.parse(localStorage.getItem(KEY) || "null");
+    const slots = createDefaultSlots();
+    if (isValidState(legacy)) slots[0] = legacy;
     return slots;
   }
   function updateSlots() {
     try {
       const slots = readSlots();
-      slotButtons.forEach((button,i) => {
-        button.classList.toggle('saved',!!slots[i]);
-        button.setAttribute('aria-label','配置'+(i+1)+(slots[i] ? '：登録済み。クリックで呼び出し、長押しで上書き' : '：未登録。長押しで登録'));
+      slotButtons.forEach((button, i) => {
+        button.classList.toggle("saved", !!slots[i]);
+        button.setAttribute(
+          "aria-label",
+          "配置" +
+            (i + 1) +
+            (slots[i]
+              ? "：登録済み。クリックで呼び出し、長押しで上書き"
+              : "：未登録。長押しで登録"),
+        );
       });
-    } catch { announce('保存した配置を読み込めませんでした。'); }
+    } catch {
+      announce("保存した配置を読み込めませんでした。");
+    }
   }
-  $('reset-slots').onclick = () => {
+  $("reset-slots").onclick = () => {
     try {
-      localStorage.setItem(SLOTS_KEY,JSON.stringify(defaultSlots()));
+      localStorage.setItem(SLOTS_KEY, JSON.stringify(createDefaultSlots()));
       updateSlots();
-      announce('配置と作戦の初期値に戻しました。');
-    } catch { announce('保存できませんでした。ブラウザの保存設定を確認してください。'); }
+      announce("配置と作戦の初期値に戻しました。");
+    } catch {
+      announce("保存できませんでした。ブラウザの保存設定を確認してください。");
+    }
   };
   function saveSlot(i) {
     if (gestures.size) return;
     try {
       const slots = readSlots();
-      slots[i] = {opponents:true,pieces:copy(state.pieces),arrows:[]};
-      localStorage.setItem(SLOTS_KEY,JSON.stringify(slots));
+      slots[i] = { opponents: true, pieces: copy(state.pieces), arrows: [] };
+      localStorage.setItem(SLOTS_KEY, JSON.stringify(slots));
       updateSlots();
-      announce('配置'+slotLabel(i)+'を保存しました。');
-    } catch { announce('保存できませんでした。ブラウザの保存設定を確認してください。'); }
+      announce("配置" + slotLabel(i) + "を保存しました。");
+    } catch {
+      announce("保存できませんでした。ブラウザの保存設定を確認してください。");
+    }
   }
   function loadSlot(i) {
     try {
       const saved = readSlots()[i];
-      if (!saved) { announce('配置'+slotLabel(i)+'はまだありません。長押しで登録してください。'); return; }
-      change(() => { state.pieces = copy(saved.pieces); },'保存した配置を開きました：'+slotLabel(i));
-    } catch { announce('保存した配置を読み込めませんでした。'); }
+      if (!saved) {
+        announce(
+          "配置" +
+            slotLabel(i) +
+            "はまだありません。長押しで登録してください。",
+        );
+        return;
+      }
+      change(
+        () => {
+          state.pieces = copy(saved.pieces);
+        },
+        "保存した配置を開きました：" + slotLabel(i),
+      );
+    } catch {
+      announce("保存した配置を読み込めませんでした。");
+    }
   }
-  slotButtons.forEach((button,i) => {
-    let press = null, timer, suppressClick = false;
+  // 配置枠の長押しは、移動・中断・フォーカス喪失時に必ず解除する。
+  slotButtons.forEach((button, i) => {
+    let press = null,
+      timer,
+      suppressClick = false;
     const cancel = () => {
       clearTimeout(timer);
-      button.classList.remove('holding');
+      button.classList.remove("holding");
       press = null;
     };
-    const begin = input => {
+    const begin = (input) => {
       cancel();
       suppressClick = false;
       press = input;
-      button.classList.add('holding');
+      button.classList.add("holding");
       timer = setTimeout(() => {
         suppressClick = true;
-        button.classList.remove('holding');
+        button.classList.remove("holding");
         saveSlot(i);
-      },650);
+      }, TIMING.slotHold);
     };
-    button.addEventListener('pointerdown',event => {
+    button.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !event.isPrimary || press) return;
-      begin({id:event.pointerId,x:event.clientX,y:event.clientY});
+      begin({ id: event.pointerId, x: event.clientX, y: event.clientY });
       button.setPointerCapture(event.pointerId);
     });
-    button.addEventListener('pointermove',event => {
-      if (press?.id === event.pointerId && Math.hypot(event.clientX-press.x,event.clientY-press.y)>10) {
-        cancel(); suppressClick = true;
+    button.addEventListener("pointermove", (event) => {
+      if (
+        press?.id === event.pointerId &&
+        Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10
+      ) {
+        cancel();
+        suppressClick = true;
       }
     });
-    button.addEventListener('pointerup',cancel);
-    button.addEventListener('pointercancel',() => { cancel(); suppressClick = true; });
-    button.addEventListener('lostpointercapture',cancel);
-    button.addEventListener('contextmenu',event => event.preventDefault());
-    button.addEventListener('keydown',event => {
-      if (![' ','Enter'].includes(event.key)) return;
-      event.preventDefault();
-      if (!event.repeat) begin({key:event.key});
+    button.addEventListener("pointerup", cancel);
+    button.addEventListener("pointercancel", () => {
+      cancel();
+      suppressClick = true;
     });
-    button.addEventListener('keyup',event => {
+    button.addEventListener("lostpointercapture", cancel);
+    button.addEventListener("contextmenu", (event) => event.preventDefault());
+    button.addEventListener("keydown", (event) => {
+      if (![" ", "Enter"].includes(event.key)) return;
+      event.preventDefault();
+      if (!event.repeat) begin({ key: event.key });
+    });
+    button.addEventListener("keyup", (event) => {
       if (press?.key !== event.key) return;
       event.preventDefault();
       cancel();
       if (!suppressClick) loadSlot(i);
     });
-    button.addEventListener('click',event => {
-      if (suppressClick) { event.preventDefault(); return; }
+    button.addEventListener("click", (event) => {
+      if (suppressClick) {
+        event.preventDefault();
+        return;
+      }
       loadSlot(i);
     });
-    button.addEventListener('blur',cancel);
-    document.addEventListener('visibilitychange',() => { if (document.hidden) cancel(); });
+    button.addEventListener("blur", cancel);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) cancel();
+    });
   });
-  window.addEventListener('storage',event => { if (event.key === SLOTS_KEY || event.key === null) updateSlots(); });
+  window.addEventListener("storage", (event) => {
+    if (event.key === SLOTS_KEY || event.key === null) updateSlots();
+  });
   updateSlots();
-  document.addEventListener('keydown',event => {
-    if ($('help-dialog').open) return;
-    if (event.target.matches('input,textarea,select') || gestures.size) return;
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); $(event.shiftKey ? 'redo' : 'undo').click(); return; }
-    const target = event.target.closest('.piece');
-    const delta = {ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];
+  document.addEventListener("keydown", (event) => {
+    if ($("help-dialog").open) return;
+    if (event.target.matches("input,textarea,select") || gestures.size) return;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      $(event.shiftKey ? "redo" : "undo").click();
+      return;
+    }
+    const target = event.target.closest(".piece");
+    const delta = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    }[event.key];
     if (!target || !delta) return;
-    event.preventDefault(); const id = target.dataset.id;
-    const [dx,dy] = landscape ? [delta[1],-delta[0]] : delta;
-    change(() => { const p = state.pieces.find(p => p.id === id); p.x += dx; p.y += dy; constrainPiece(p); },'選手・ボールの位置を調整しました。');
-    document.querySelector(`[data-id="${id}"]`).focus({preventScroll:true});
+    event.preventDefault();
+    const id = target.dataset.id;
+    const [dx, dy] = landscape ? [delta[1], -delta[0]] : delta;
+    change(() => {
+      const p = state.pieces.find((p) => p.id === id);
+      p.x += dx;
+      p.y += dy;
+      constrainPiece(p);
+    }, "選手・ボールの位置を調整しました。");
+    document.querySelector(`[data-id="${id}"]`).focus({ preventScroll: true });
   });
-  setOrientation(window.innerWidth > window.innerHeight ? 'landscape' : 'portrait');
+  // 起動時のみ全体表示。利用者が向きを選び直した時は100%に戻す。
+  setOrientation(
+    window.innerWidth > window.innerHeight ? "landscape" : "portrait",
+    true,
+  );
 })();
 
-if ('serviceWorker' in navigator && window.isSecureContext) {
-  window.addEventListener('load',() => {
-    navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Offline setup failed:',error));
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("./sw.js")
+      .catch((error) => console.warn("Offline setup failed:", error));
   });
 }
