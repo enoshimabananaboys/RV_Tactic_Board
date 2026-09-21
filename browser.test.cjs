@@ -120,6 +120,13 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     await page.locator('#reset-slots').click();
     assert.deepEqual(await positions(),boardBeforeReset);
     const defaults = await page.evaluate(() => JSON.parse(localStorage.getItem('rv-tactic-board-v1-slots')));
+    for (const formation of defaults) {
+      formation.pieces.filter(p => p.team === 'home').forEach(home => {
+        const away = formation.pieces.find(p => p.team === 'opponent' && p.number === home.number);
+        assert.ok(Math.abs(away.x-(100-home.x))<1e-8);
+        assert.ok(Math.abs(away.y-(100-home.y))<1e-8);
+      });
+    }
     for (const formation of defaults.slice(1)) {
       const home = formation.pieces.filter(p => p.team === 'home');
       assert.equal(new Set(home.filter(p => p.number <= 3).map(p => p.y)).size,1);
@@ -129,7 +136,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
       defaults[left].pieces.forEach((p,i) => {
         const other = defaults[right].pieces[i];
         assert.equal(other.y,p.y);
-        assert.equal(other.x,p.team === 'opponent' ? p.x : 100-p.x);
+        assert.ok(Math.abs(other.x-(100-p.x))<1e-8);
       });
     }
     await page.locator('[data-slot="1"]').click();

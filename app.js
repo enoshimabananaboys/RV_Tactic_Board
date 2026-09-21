@@ -286,10 +286,11 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
         ? [[85.4,70.5],[57.8,70.5],[31.5,70.5],[71.6,60.5],[47.4,60.5],[21.6,60.5]]
         : [[74.2,70.5],[57.8,70.5],[31.5,70.5],[85.2,60.5],[47.4,60.5],[21.6,60.5]];
       saved.pieces.forEach(p => {
-        if (p.team === 'opponent') return;
         const [x,y] = p.team === 'ball' ? [second ? 60.7 : 65.1,54.6] : home[p.number-1];
         p.x = mirror ? 100-x : x;
         p.y = y;
+        // Both teams use the same formation from their own side of the net.
+        if (p.team === 'opponent') { p.x = 100-p.x; p.y = 100-p.y; }
       });
       return saved;
     };
