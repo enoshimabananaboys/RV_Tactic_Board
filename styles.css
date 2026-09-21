@@ -96,8 +96,8 @@ main { max-width:none; width:100%; height:calc(100dvh - 48px); padding:6px; marg
 .board-panel { display:flex; flex-direction:column; }
 .board-heading { flex-shrink:0; background:#eaeede; z-index:1; }
 .court-scroll { flex:1; min-height:0; overflow:auto; container-type:size; overscroll-behavior:contain; scrollbar-width:auto; touch-action:pan-x pan-y; }
-.workspace .court-wrap { width:calc(100cqw - 40px); margin:20px auto; padding:0; }
-.workspace.landscape .court-wrap { width:calc((100cqh - 40px) * 86 / 45); margin:20px; padding:0; display:block; }
+.workspace .court-wrap { width:calc((100cqw - 40px) * var(--court-zoom, 1)); margin:20px auto; padding:0; }
+.workspace.landscape .court-wrap { width:calc((100cqh - 40px) * 86 / 45 * var(--court-zoom, 1)); margin:20px; padding:0; display:block; }
 .court-label { display:none; }
 
 /* A single compact toolbar; the full application title lives in the tool panel. */
@@ -112,3 +112,6 @@ main { height:100dvh; padding:0; }
 .tool-brand { display:flex; align-items:center; gap:8px; margin-bottom:20px; font-size:12px; font-weight:800; letter-spacing:1px; }
 .tool-brand .brand-icon { flex-shrink:0; }
 .tool-brand small { display:block; margin-top:4px; font-size:9px; font-weight:400; letter-spacing:0; }
+
+/* Display the ball as 50 cm for handling: half the 1 m player diameter at every zoom. */
+.court .piece.ball { width:calc(var(--piece-size) * .5); height:calc(var(--piece-size) * .5); }

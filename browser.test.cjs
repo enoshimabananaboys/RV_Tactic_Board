@@ -27,6 +27,10 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     await page.goto('http://127.0.0.1:'+server.address().port);
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => navigator.serviceWorker.controller);
+    assert.equal(await page.locator('#landscape').getAttribute('aria-pressed'),'true');
+    await page.setViewportSize({width:700,height:900});
+    await page.reload();
+    assert.equal(await page.locator('#portrait').getAttribute('aria-pressed'),'true');
     const initialScroll = await page.locator('.court-scroll').evaluate(el => ({top:el.scrollTop,max:el.scrollHeight-el.clientHeight}));
     assert.ok(initialScroll.max>0 && Math.abs(initialScroll.top-initialScroll.max)<1,'initial view starts at the home court');
     assert.equal(await page.locator('.toolbar-home').getAttribute('href'),'./');
@@ -34,6 +38,17 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
       if (!(await page.locator('#tool-panel').isVisible())) await page.locator('#toggle-tools').click();
       await page.locator('#'+id).click();
       await page.locator('#toggle-tools').click();
+    };
+    await page.setViewportSize({width:1136,height:905});
+    await setOrientation('portrait');
+    const checkBallSize = async () => {
+      const sizes = await page.locator('#court').evaluate(court => {
+        const player=court.querySelector('.piece:not(.ball)').getBoundingClientRect();
+        const ball=court.querySelector('.piece.ball').getBoundingClientRect();
+        return {player:player.width,width:ball.width,height:ball.height};
+      });
+      assert.ok(Math.abs(sizes.width-sizes.player/2)<.1,'ball diameter is half the player');
+      assert.ok(Math.abs(sizes.height-sizes.width)<.1,'ball stays circular');
     };
     const positions = () => page.locator('.piece').evaluateAll(elements => elements.map(e => [e.dataset.id,e.style.left,e.style.top]));
     const original = await positions();
@@ -100,6 +115,7 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
             return {expected,width:circle.width,height:circle.height,font:parseFloat(getComputedStyle(piece).fontSize)};
           });
         });
+        await checkBallSize();
         sizing.forEach(size => {
           assert.ok(Math.abs(size.width-size.expected)<.1,'player diameter is 1 m');
           assert.ok(Math.abs(size.height-size.width)<.1,'player remains circular');
@@ -219,6 +235,27 @@ test('saved formations, responsive toolbar, and offline PWA',async () => {
     await touch('touchMove',[{...one,y:one.y-30},{...two,y:two.y-30},{...third,y:third.y-30}]);
     await touch('touchEnd',[]);
     assert.equal(await page.locator('#arrow-lines line').count(),0);
+    // Pinch enlarges both axes, then orientation selection resets to short-side fit.
+    await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
+    const beforePinch = await page.locator('#court').boundingBox();
+    one = {id:1,x:240,y:beforePinch.y+beforePinch.height*.25};
+    two = {id:2,x:400,y:one.y};
+    await touch('touchStart',[one,two]);
+    await touch('touchMove',[{...one,x:160},{...two,x:480}]);
+    await page.waitForFunction(() => Number(document.querySelector('.court-wrap').style.getPropertyValue('--court-zoom'))>1.8);
+    await touch('touchEnd',[]);
+    await checkBallSize();
+    assert.ok(await page.locator('.court-scroll').evaluate(el => el.scrollWidth>el.clientWidth && el.scrollHeight>el.clientHeight));
+    assert.equal(await page.locator('#arrow-lines line').count(),0);
+    await page.locator('.court-scroll').evaluate(el => { el.scrollTop=0; el.scrollLeft=0; });
+    one = {id:1,x:160,y:180}; two = {id:2,x:480,y:180};
+    await touch('touchStart',[one,two]);
+    await touch('touchMove',[{...one,x:240},{...two,x:400}]);
+    await page.waitForFunction(() => Number(document.querySelector('.court-wrap').style.getPropertyValue('--court-zoom'))<1.2);
+    await touch('touchEnd',[]);
+    await checkBallSize();
+    await setOrientation('portrait');
+    assert.equal(await page.locator('.court-wrap').evaluate(el => el.style.getPropertyValue('--court-zoom')),'1');
     // Horizontal scrolling in landscape uses the same gesture.
     await page.setViewportSize({width:390,height:844});
     await setOrientation('landscape');

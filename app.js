@@ -33,7 +33,8 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     ...[[28,18],[50,18],[72,18],[28,42.5],[50,42.5],[72,42.5]].map(([x,y],i) => ({id:`away-${i+1}`,team:'opponent',number:i+1,x,y})),
     {id:'ball',team:'ball',number:0,x:50,y:73}
   ], arrows: [] });
-  let state = initial(), landscape = false;
+  let state = initial(), landscape = false, zoom = 1;
+  let pinch = null;
   const gestures = new Map();
   let gestureBefore = null;
   let aimVisibleUntil = 0, aimTimer;
@@ -188,17 +189,36 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const p = courtPoint({x:(event.clientX-r.left)/r.width*100,y:(event.clientY-r.top)/r.height*100});
     return {x:Math.max(7,Math.min(93,p.x)),y:Math.max(5,Math.min(95,p.y))};
   }
-  ['portrait','landscape'].forEach(id => $(id).onclick = () => {
+  function setOrientation(id) {
     if (gestures.size) return;
     landscape = id === 'landscape';
+    zoom = 1;
+    document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
     document.querySelector('.workspace').classList.toggle('landscape',landscape);
     $('arrows').setAttribute('viewBox',landscape ? '0 0 191.111111 100' : '0 0 100 191.111111');
     $('portrait').setAttribute('aria-pressed',!landscape);
     $('landscape').setAttribute('aria-pressed',landscape);
     render();
+    const viewport = document.querySelector('.court-scroll');
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = landscape ? 0 : viewport.scrollHeight;
     announce(landscape ? '横向き：左が味方、右が相手コートです。' : '縦向き：下が味方、上が相手コートです。');
-  });
+  }
+  ['portrait','landscape'].forEach(id => $(id).onclick = () => setOrientation(id));
   window.addEventListener('resize',() => { updatePieceSize(); if (!gestures.size) render(); else drawAim(); });
+  function touchGeometry() {
+    const touches = [...gestures.values()].filter(g => g.scrolling);
+    if (touches.length < 2) return null;
+    const x = touches.reduce((sum,g) => sum+g.clientX,0)/touches.length;
+    const y = touches.reduce((sum,g) => sum+g.clientY,0)/touches.length;
+    const radius = Math.sqrt(touches.reduce((sum,g) => sum+(g.clientX-x)**2+(g.clientY-y)**2,0)/touches.length);
+    return {x,y,radius};
+  }
+  function resetPinch() {
+    const geometry = touchGeometry();
+    const rect = $('court').getBoundingClientRect();
+    pinch = geometry ? {...geometry,zoom,u:(geometry.x-rect.left)/rect.width,v:(geometry.y-rect.top)/rect.height} : null;
+  }
   $('court').addEventListener('pointerdown',event => {
     if (gestures.has(event.pointerId) || event.button !== 0) return;
     const target = event.target.closest('.piece');
@@ -211,6 +231,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     if (touches.length >= 2 || touches.some(g => g.scrolling)) {
       touches.forEach(g => { g.scrolling = true; delete g.end; });
       drawArrows();
+      resetPinch();
     }
     if (target) { target.focus({preventScroll:true}); target.classList.add('dragging'); }
     $('court').setPointerCapture(event.pointerId);
@@ -219,14 +240,18 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   $('court').addEventListener('pointermove',event => {
     const gesture = gestures.get(event.pointerId);
     if (!gesture) return;
-    const dx = event.clientX-gesture.clientX, dy = event.clientY-gesture.clientY;
     gesture.clientX = event.clientX; gesture.clientY = event.clientY;
     if (gesture.scrolling) {
-      const touches = [...gestures.values()].filter(g => g.scrolling);
-      if (touches.length >= 2) {
+      const geometry = touchGeometry();
+      if (geometry && pinch) {
+        zoom = Math.max(.5,Math.min(3,pinch.zoom*geometry.radius/Math.max(1,pinch.radius)));
+        document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
         const viewport = document.querySelector('.court-scroll');
-        viewport.scrollLeft -= dx/touches.length;
-        viewport.scrollTop -= dy/touches.length;
+        const rect = $('court').getBoundingClientRect();
+        viewport.scrollLeft += rect.left+pinch.u*rect.width-geometry.x;
+        viewport.scrollTop += rect.top+pinch.v*rect.height-geometry.y;
+        updatePieceSize();
+        drawAim();
       }
       return;
     }
@@ -242,6 +267,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const g = gestures.get(event.pointerId);
     if (!g) return;
     gestures.delete(event.pointerId);
+    if (g.scrolling) resetPinch();
     if (g.piece?.team === 'ball') {
       if (cancel) { clearTimeout(aimTimer); aimVisibleUntil = 0; }
       else keepAimBriefly();
@@ -406,10 +432,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     change(() => { const p = state.pieces.find(p => p.id === id); p.x += dx; p.y += dy; constrainPiece(p); },'選手・ボールの位置を調整しました。');
     document.querySelector(`[data-id="${id}"]`).focus({preventScroll:true});
   });
-  render();
-  // Start at the home court once; subsequent user scrolling remains untouched.
-  const initialViewport = document.querySelector('.court-scroll');
-  initialViewport.scrollTop = initialViewport.scrollHeight;
+  setOrientation(window.innerWidth > window.innerHeight ? 'landscape' : 'portrait');
 })();
 
 if ('serviceWorker' in navigator && window.isSecureContext) {
