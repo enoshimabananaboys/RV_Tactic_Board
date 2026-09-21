@@ -34,7 +34,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     {id:'ball',team:'ball',number:0,x:50,y:73}
   ], arrows: [] });
   let state = initial(), landscape = false, zoom = 1;
-  let pinch = null;
+  let pinch = null, lastCourtTap = null;
   const gestures = new Map();
   let gestureBefore = null;
   let aimVisibleUntil = 0, aimTimer;
@@ -74,6 +74,26 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     $('tool-panel').hidden = !open;
     $('toggle-tools').setAttribute('aria-expanded',open);
   };
+  $('open-help').onclick = () => {
+    dismissedByPointer = false;
+    $('help-dialog').showModal();
+    document.querySelector('.help-content').scrollTop = 0;
+  };
+  let helpBackdropPointer = null;
+  const outsideHelp = event => {
+    const rect = $('help-dialog').getBoundingClientRect();
+    return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+  };
+  $('help-dialog').addEventListener('pointerdown',event => {
+    helpBackdropPointer = event.target === $('help-dialog') && outsideHelp(event) ? event.pointerId : null;
+  });
+  $('help-dialog').addEventListener('pointercancel',() => { helpBackdropPointer = null; });
+  $('help-dialog').addEventListener('click',event => {
+    if (helpBackdropPointer !== null && event.target === $('help-dialog') && outsideHelp(event)) $('help-dialog').close();
+    helpBackdropPointer = null;
+  });
+  $('close-help').onclick = () => $('help-dialog').close();
+  $('help-dialog').addEventListener('close',() => $('open-help').focus({preventScroll:true}));
   function closeTools() {
     $('tool-panel').hidden = true;
     $('toggle-tools').setAttribute('aria-expanded','false');
@@ -82,6 +102,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   let dismissedByPointer = false;
   document.addEventListener('pointerdown',event => {
     dismissedByPointer = false;
+    if ($('help-dialog').open) return;
     if ($('tool-panel').hidden || $('tool-panel').contains(event.target) || $('toggle-tools').contains(event.target)) return;
     if (event.target.closest('.board-heading')) { closeTools(); return; }
     dismissedByPointer = true;
@@ -97,6 +118,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     event.stopPropagation();
   },true);
   document.addEventListener('keydown',event => {
+    if ($('help-dialog').open) return;
     if (event.key === 'Escape' && !$('tool-panel').hidden) {
       closeTools();
       event.preventDefault();
@@ -189,8 +211,22 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const p = courtPoint({x:(event.clientX-r.left)/r.width*100,y:(event.clientY-r.top)/r.height*100});
     return {x:Math.max(7,Math.min(93,p.x)),y:Math.max(5,Math.min(95,p.y))};
   }
+  function minimumZoom() {
+    const viewport = document.querySelector('.court-scroll');
+    const width = Math.max(1,viewport.clientWidth-40), height = Math.max(1,viewport.clientHeight-40);
+    return Math.min(1,landscape ? width/(height*86/45) : height/(width*86/45));
+  }
+  function toggleCourtFit() {
+    zoom = Math.abs(zoom-minimumZoom())<.02 ? 1 : minimumZoom();
+    document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
+    render();
+    const viewport = document.querySelector('.court-scroll');
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = landscape ? 0 : viewport.scrollHeight;
+  }
   function setOrientation(id) {
     if (gestures.size) return;
+    lastCourtTap = null;
     landscape = id === 'landscape';
     zoom = 1;
     document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
@@ -205,7 +241,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     announce(landscape ? '横向き：左が味方、右が相手コートです。' : '縦向き：下が味方、上が相手コートです。');
   }
   ['portrait','landscape'].forEach(id => $(id).onclick = () => setOrientation(id));
-  window.addEventListener('resize',() => { updatePieceSize(); if (!gestures.size) render(); else drawAim(); });
+  window.addEventListener('resize',() => { lastCourtTap = null; zoom = Math.max(minimumZoom(),zoom); document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom); updatePieceSize(); if (!gestures.size) render(); else drawAim(); });
   function touchGeometry() {
     const touches = [...gestures.values()].filter(g => g.scrolling);
     if (touches.length < 2) return null;
@@ -226,13 +262,14 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const start = point(event), piece = target ? state.pieces.find(p => p.id === target.dataset.id) : null;
     if (piece && [...gestures.values()].some(g => g.piece === piece)) return;
     if (!gestures.size) gestureBefore = copy(state);
-    gestures.set(event.pointerId,{pointer:event.pointerId,pointerType:event.pointerType,clientX:event.clientX,clientY:event.clientY,scrolling:false,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
+    gestures.set(event.pointerId,{pointer:event.pointerId,tapStarted:Date.now(),tapX:event.clientX,tapY:event.clientY,tapMoved:false,pointerType:event.pointerType,clientX:event.clientX,clientY:event.clientY,scrolling:false,start,original:piece ? copy(piece) : null,piece,target,temporary:$('line-lifetime').value === 'temporary',offset:piece ? {x:piece.x-start.x,y:piece.y-start.y} : null});
     const touches = [...gestures.values()].filter(g => !g.piece && g.pointerType === 'touch');
     if (touches.length >= 2 || touches.some(g => g.scrolling)) {
       touches.forEach(g => { g.scrolling = true; delete g.end; });
       drawArrows();
       resetPinch();
     }
+    if (piece || gestures.size > 1) { lastCourtTap = null; gestures.forEach(g => g.tapMoved = true); }
     if (target) { target.focus({preventScroll:true}); target.classList.add('dragging'); }
     $('court').setPointerCapture(event.pointerId);
     drawAim();
@@ -240,11 +277,12 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   $('court').addEventListener('pointermove',event => {
     const gesture = gestures.get(event.pointerId);
     if (!gesture) return;
+    if (Math.hypot(event.clientX-gesture.tapX,event.clientY-gesture.tapY)>10) gesture.tapMoved = true;
     gesture.clientX = event.clientX; gesture.clientY = event.clientY;
     if (gesture.scrolling) {
       const geometry = touchGeometry();
       if (geometry && pinch) {
-        zoom = Math.max(.5,Math.min(3,pinch.zoom*geometry.radius/Math.max(1,pinch.radius)));
+        zoom = Math.max(minimumZoom(),Math.min(3,pinch.zoom*geometry.radius/Math.max(1,pinch.radius)));
         document.querySelector('.court-wrap').style.setProperty('--court-zoom',zoom);
         const viewport = document.querySelector('.court-scroll');
         const rect = $('court').getBoundingClientRect();
@@ -261,11 +299,14 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
       constrainPiece(gesture.piece);
       placePiece(gesture.target,gesture.piece);
       drawAim();
-    } else { gesture.end = p; drawArrows(); }
+    } else if (gesture.tapMoved) { gesture.end = p; drawArrows(); }
   });
   function finish(event,cancel = false) {
     const g = gestures.get(event.pointerId);
     if (!g) return;
+    const isTap = !cancel && !g.piece && !g.scrolling && !g.tapMoved && !g.end && Date.now()-g.tapStarted<300;
+    const doubleTap = isTap && lastCourtTap && Date.now()-lastCourtTap.time<350 && Math.hypot(event.clientX-lastCourtTap.x,event.clientY-lastCourtTap.y)<24;
+    lastCourtTap = isTap && !doubleTap ? {time:Date.now(),x:event.clientX,y:event.clientY} : null;
     gestures.delete(event.pointerId);
     if (g.scrolling) resetPinch();
     if (g.piece?.team === 'ball') {
@@ -290,6 +331,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
       gestureBefore = null;
       render();
     } else { drawArrows(); drawAim(); }
+    if (doubleTap && !gestures.size) toggleCourtFit();
   }
   $('court').addEventListener('pointerup',event => finish(event));
   $('court').addEventListener('pointercancel',event => finish(event,true));
@@ -422,6 +464,7 @@ function aimPolygon(ball, defenders, bounds, attackY, goalY) {
   window.addEventListener('storage',event => { if (event.key === SLOTS_KEY || event.key === null) updateSlots(); });
   updateSlots();
   document.addEventListener('keydown',event => {
+    if ($('help-dialog').open) return;
     if (event.target.matches('input,textarea,select') || gestures.size) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); $(event.shiftKey ? 'redo' : 'undo').click(); return; }
     const target = event.target.closest('.piece');

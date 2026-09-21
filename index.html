@@ -16,6 +16,7 @@
     <div class="workspace">
       <aside id="tool-panel" class="panel" hidden>
         <div class="tool-brand"><span class="brand-icon" aria-hidden="true">RV</span><span>TACTIC BOARD<small>ローリングバレーボール作戦ボード</small></span></div>
+        <button id="open-help" aria-haspopup="dialog" aria-controls="help-dialog">ⓘ 使い方</button>
         <div class="section-title"><span>操作ツール</span></div>
         <div class="orientation-setting"><span>コートの向き</span><div class="orientation" role="group" aria-label="コートの向き"><button id="portrait" aria-pressed="true">縦</button><button id="landscape" aria-pressed="false">横</button></div></div>
         <label class="line-setting" for="line-lifetime">線の表示<select id="line-lifetime"><option value="temporary">5秒後に消す</option><option value="permanent">残す</option></select></label>
@@ -50,5 +51,21 @@
     </div>
     <div id="status" role="status" aria-live="polite">準備できました。選手を動かしてみましょう。</div>
   </main>
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="help-heading"><h2 id="help-title">使い方</h2><button id="close-help" autofocus>× 閉じる</button></div>
+    <div class="help-content" tabindex="0" role="region" aria-label="操作説明">
+      <section><h3>選手・ボールを動かす</h3><p>指でドラッグします。複数の選手を同時に動かせます。</p></section>
+      <section><h3>矢印を描く</h3><p>何もないコートを1本指でなぞります。<br>ツールで「5秒後に消す」「残す」を選べます。</p></section>
+      <section><h3>コートを見る</h3><p>何もないコートを2本指で動かすとスクロール。<br>指を広げる・狭めると拡大・縮小します。<br>ダブルタップで「全体表示」と「短辺合わせ」を切り替えます。</p></section>
+      <section><h3>配置を呼び出す・保存する</h3><p>①〜⑤をタップすると配置を呼び出します。<br>長押しすると、現在の両チームとボールの位置を上書き保存します。</p></section>
+      <section><h3>操作を戻す</h3><p>↶で元に戻す、↷でやり直します。</p></section>
+      <section><h3>初期状態に戻す</h3><p>「初期位置へ」は現在のボードをリセットします。<br>ツール内の「初期値に戻す」は①〜⑤の登録内容をリセットします。</p></section>
+      <details><summary>その他の操作</summary>
+        <section><h3>表示の向きと大きさ</h3><p>ツールの「縦・横」で向きを変更できます。切り替えると短辺合わせ（100%）に戻ります。縮小は全体表示まで、拡大は300%までできます。</p></section>
+        <section><h3>狙える範囲</h3><p>ボールを動かすと、相手選手に遮られない方向を黄色で表示します。ツールで「ボールを離して5秒後に消す」「常に表示する」を選べます。</p></section>
+        <section><h3>マウス・キーボード</h3><p>マウスでもドラッグで移動・描画できます。何もないコートをダブルクリックすると表示サイズを切り替えます。</p><p>選手・ボールにフォーカスして矢印キーで微調整。Ctrl / Command + Zで元に戻す、Shiftを加えるとやり直し。①〜⑤ではSpace / Enterの短押しで呼び出し、長押しで登録できます。</p></section>
+      </details>
+    </div>
+  </dialog>
 </body>
 </html>

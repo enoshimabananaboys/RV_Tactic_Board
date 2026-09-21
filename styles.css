@@ -115,3 +115,17 @@ main { height:100dvh; padding:0; }
 
 /* Display the ball as 50 cm for handling: half the 1 m player diameter at every zoom. */
 .court .piece.ball { width:calc(var(--piece-size) * .5); height:calc(var(--piece-size) * .5); }
+
+#open-help { display:block; width:100%; min-height:40px; margin:0 0 18px; border:1px solid #d5ddcc; border-radius:7px; background:#f5f7ee; color:#234e3e; font-size:13px; }
+#help-dialog { width:min(520px,calc(100vw - 24px)); max-width:none; max-height:calc(100dvh - 24px); padding:0; border:1px solid #dce2d7; border-radius:14px; background:#fffefa; color:#253b36; box-shadow:0 16px 60px #183d3340; overflow:hidden; }
+#help-dialog[open] { display:flex; flex-direction:column; }
+#help-dialog::backdrop { background:rgba(16,35,29,.5); }
+.help-heading { display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px; border-bottom:1px solid #e0e4da; }
+.help-heading h2 { font-size:18px; margin:0; }
+#close-help { min-height:40px; padding:8px; border:0; border-radius:6px; background:#f0f3e9; color:#234e3e; font-size:13px; }
+.help-content { overflow:auto; min-height:0; padding:18px 20px; overscroll-behavior:contain; font-size:13px; line-height:1.8; }
+.help-content section + section { margin-top:18px; }
+.help-content h3 { margin:0 0 4px; font-size:14px; color:#234e3e; }
+.help-content p { margin:0 0 8px; }
+.help-content details { margin-top:20px; border-top:1px solid #e0e4da; padding-top:10px; }
+.help-content summary { cursor:pointer; padding:8px 0; color:#234e3e; font-weight:700; }
