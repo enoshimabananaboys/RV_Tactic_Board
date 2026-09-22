@@ -384,8 +384,8 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
       result.during = during;
       assert.ok(Math.abs(result.during - desired) < 0.05, 'no player area restriction during drag: ' + JSON.stringify({id, desired, result}));
       assert.ok(Math.abs(result.after - expected) < 1e-6, 'touches zero-width line on release');
-      assert.equal(result.duration, 120);
-      await page.waitForTimeout(140);
+      assert.equal(result.duration, 240);
+      await piece.evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)));
     }
     await page.locator('#reset').click();
     // Actual multi-touch input through the browser's touch dispatcher.

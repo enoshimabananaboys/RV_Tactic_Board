@@ -521,8 +521,20 @@ main {
 .top-actions {
   display: flex;
   justify-content: center;
-  gap: 24px;
+  gap: 8px;
   flex: 1 1 0%;
+}
+#auto-position[aria-pressed="true"] {
+  background: rgb(35, 78, 62);
+  color: white;
+  border-radius: 6px;
+}
+@media (max-width: 380px) {
+  .board-heading .heading-controls { gap: 0; }
+  .board-heading .top-actions { gap: 0; }
+  .board-heading .top-actions button { padding: 2px; font-size: 10px; }
+  .board-heading .history { gap: 0; }
+  .board-heading .history button { min-width: 26px; padding: 2px; }
 }
 .top-actions button {
   border: 0px;

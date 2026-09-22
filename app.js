@@ -88,6 +88,121 @@
   const undo = [],
     redo = [];
   const copy = (value) => JSON.parse(JSON.stringify(value));
+  let autoMode = "off";
+  let autoEnabled = false;
+  let autoBlocked = false;
+  let autoAnchors = BoardModel.selectAutoAnchors(state.pieces);
+  const autoAnimations = new Map();
+  let autoFrame = 0;
+  let autoPausedAt = null;
+  function visualPiece(p, now = performance.now()) {
+    const animation = autoAnimations.get(p.id);
+    if (!animation) return p;
+    const t = Math.min(
+      1,
+      ((autoPausedAt ?? now) - animation.start) / animation.duration,
+    );
+    const ease = 1 - (1 - t) ** 3;
+    return { ...p, x: animation.x + (p.x - animation.x) * ease,
+      y: animation.y + (p.y - animation.y) * ease };
+  }
+  function animateAuto(now) {
+    autoFrame = 0;
+    for (const [id, animation] of autoAnimations) {
+      const p = state.pieces.find((p) => p.id === id);
+      const button = document.querySelector(`[data-id="${id}"]`);
+      if (button) placePiece(button, visualPiece(p, now));
+      if (now >= animation.start + animation.duration) autoAnimations.delete(id);
+    }
+    drawAim();
+    if (autoAnimations.size) autoFrame = requestAnimationFrame(animateAuto);
+  }
+  function stopAutoAnimations() {
+    cancelAnimationFrame(autoFrame);
+    autoFrame = 0;
+    autoAnimations.clear();
+    autoPausedAt = null;
+  }
+  function updateAutoUI() {
+    $("auto-position").setAttribute("aria-pressed", autoEnabled);
+    $("auto-position").textContent = `自動位置${autoMode.toUpperCase()}`;
+    $("auto-position").dataset.mode = autoMode;
+    $("auto-position").title = "自動位置OFF → ON（中4人）→ FULL（全6人）";
+    document.querySelectorAll(".piece:not(.ball)").forEach((button) => {
+      button.removeAttribute("aria-disabled");
+      button.title = "ドラッグ後に25cm単位へ整列・矢印キーで移動";
+    });
+  }
+  function setAuto(mode) {
+    autoMode = mode;
+    const enabled = mode !== "off";
+    autoEnabled = enabled;
+    autoBlocked = false;
+    if (enabled) autoAnchors = BoardModel.selectAutoAnchors(state.pieces, autoAnchors);
+    else stopAutoAnimations();
+    updateAutoUI();
+  }
+  $("auto-position").onclick = () => {
+    if (gestures.size) return;
+    const modes = ["off", "on", "full"];
+    setAuto(modes[(modes.indexOf(autoMode) + 1) % modes.length]);
+    render();
+  };
+  // 手動操作は表示中の位置から引き継ぐ。他の自動移動は次のボール移動まで停止。
+  function beginManualPosition(p, button) {
+    if (!autoEnabled) return;
+    if (autoPausedAt === null) autoPausedAt = performance.now();
+    cancelAnimationFrame(autoFrame);
+    autoFrame = 0;
+    if (autoAnimations.has(p.id)) {
+      const visible = courtPoint({
+        x: parseFloat(button.style.left),
+        y: parseFloat(button.style.top),
+      });
+      p.x = visible.x;
+      p.y = visible.y;
+      autoAnimations.delete(p.id);
+    }
+    // ボールの取り消しで、後から始めた手動操作を巻き戻さない。
+    for (const g of gestures.values()) g.autoMoved?.delete(p.id);
+  }
+  function resumeAutoAnimations(now) {
+    if (autoPausedAt === null) return;
+    for (const animation of autoAnimations.values()) {
+      animation.start += now - autoPausedAt;
+    }
+    autoPausedAt = null;
+  }
+  function runAutoPosition() {
+    if (
+      !autoEnabled ||
+      [...gestures.values()].some((g) => g.piece && g.piece.team !== "ball")
+    ) return;
+    const destinations = BoardModel.autoPosition(state.pieces, autoAnchors, autoMode);
+    if (!destinations.length) {
+      if (!autoBlocked) announce(autoMode === "full"
+        ? "全6人を配置できません。選手の配置を調整してください。"
+        : "中4人を配置できません。固定メンバーの間隔を広げてください。");
+      autoBlocked = true;
+      return;
+    }
+    autoBlocked = false;
+    const now = performance.now();
+    resumeAutoAnimations(now);
+    for (const destination of destinations) {
+      const p = state.pieces.find((p) => p.id === destination.id);
+      if (p.x === destination.x && p.y === destination.y) continue;
+      const from = visualPiece(p, now);
+      const distance = Math.hypot((from.x - destination.x) * 9 / 86, (from.y - destination.y) / 5);
+      autoAnimations.set(p.id, { x: from.x, y: from.y, start: now,
+        duration: Math.min(600, 240 + distance * 120) });
+      Object.assign(p, destination);
+      for (const g of gestures.values()) {
+        if (g.piece?.team === "ball") g.autoMoved?.add(p.id);
+      }
+    }
+    if (autoAnimations.size && !autoFrame) autoFrame = requestAnimationFrame(animateAuto);
+  }
   let noticeTimer;
   const announce = (message) => {
     $("status").textContent = message;
@@ -238,10 +353,10 @@
   // 保存座標は常に縦向き（味方が下）。横向きへの変換は描画・入力の境界で行う。
   const screenPoint = (p) => (landscape ? { x: 100 - p.y, y: p.x } : p);
   const courtPoint = (p) => (landscape ? { x: p.y, y: 100 - p.x } : p);
-  function pieceBounds(p) {
+  function pieceBounds(p, adaptive = false) {
     if (p.team === "ball") return { minX: 7, maxX: 93, minY: 5, maxY: 95 };
     // 選手ごとの半径をコート座標へ換算。ラインの描画幅は含めない。
-    const clearance = (pieceDiameter(p) / 2 / 18) * 90;
+    const clearance = (pieceDiameter(p, state.pieces.find((q) => q.team === "ball"), adaptive) / 2 / 18) * 90;
     const front = p.number >= 4;
     const [min, max] =
       p.team === "home"
@@ -260,7 +375,7 @@
   }
   function snapPlayerToGrid(p) {
     if (p.team === "ball") return;
-    const bounds = pieceBounds(p);
+    const bounds = pieceBounds(p, autoEnabled);
     const snapAxis = (value, origin, step, min, max) => {
       const grid = origin + Math.round((value - origin) / step) * step;
       const candidates = [min, max, Math.max(min, Math.min(max, grid))];
@@ -284,7 +399,7 @@
     );
   }
   function movePlayerOnGrid(p, dx, dy) {
-    const bounds = pieceBounds(p);
+    const bounds = pieceBounds(p, autoEnabled);
     const moveAxis = (value, origin, step, direction, min, max) => {
       const index = (value - origin) / step;
       const nextIndex =
@@ -353,6 +468,7 @@
   }
   // Canvasは画面密度に合わせ、選手の円を最後にくり抜く。
   function drawAim() {
+    updateDisplayedSizes();
     const canvas = $("aim-overlay");
     const ball = state.pieces.find((p) => p.team === "ball");
     canvas.hidden =
@@ -376,8 +492,8 @@
     const defenders = state.pieces
       .filter((p) => p.team === target)
       .map((p) => ({
-        ...toPixel(p),
-        radius: ((width * 0.86) / 9) * pieceDiameter(p) / 2,
+        ...toPixel(visualPiece(p)),
+        radius: ((width * 0.86) / 9) * pieceDiameter(visualPiece(p), ball, autoEnabled) / 2,
       }));
     const points = aimPolygon(
       toPixel(ball),
@@ -400,6 +516,20 @@
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+  }
+  // 円径は実際に表示中の中心間距離から求める。固定選手も両チームとも対象。
+  // サイズ変更だけでは固定位置を動かさない。自動配置候補は拡大後の円で計算する。
+  function updateDisplayedSizes() {
+    const rect = $("court").getBoundingClientRect();
+    const meter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
+    const ball = state.pieces.find((p) => p.team === "ball");
+    for (const p of state.pieces) {
+      if (p.team === "ball") continue;
+      const button = document.querySelector(`[data-id="${p.id}"]`);
+      if (!button) continue;
+      const diameter = pieceDiameter(visualPiece(p), ball, autoEnabled);
+      button.style.setProperty("--piece-size", `${meter * diameter}px`);
     }
   }
   function updatePieceSize() {
@@ -444,9 +574,10 @@
         p.team === "ball"
           ? "ドラッグで移動・矢印キーで微調整"
           : "ドラッグ後に25cm単位へ整列・矢印キーで移動";
-      placePiece(button, p);
+      placePiece(button, visualPiece(p));
       $("pieces").append(button);
     });
+    updateAutoUI();
     drawArrows();
     historyButtons();
     drawAim();
@@ -571,6 +702,8 @@
         : null;
     if (piece && [...gestures.values()].some((g) => g.piece === piece)) return;
     if (!gestures.size) gestureBefore = copy(state);
+    const original = piece ? copy(piece) : null;
+    if (piece && piece.team !== "ball") beginManualPosition(piece, target);
     gestures.set(event.pointerId, {
       pointer: event.pointerId,
       tapStarted: Date.now(),
@@ -582,7 +715,9 @@
       clientY: event.clientY,
       scrolling: false,
       start,
-      original: piece ? copy(piece) : null,
+      original,
+      autoBefore: piece?.team === "ball" && autoEnabled ? copy(state.pieces) : null,
+      autoMoved: new Set(),
       piece,
       target,
       temporary: $("line-lifetime").value === "temporary",
@@ -657,9 +792,12 @@
     }
     const p = point(event);
     if (gesture.piece) {
+      const beforeX = gesture.piece.x, beforeY = gesture.piece.y;
       gesture.piece.x = p.x + gesture.offset.x;
       gesture.piece.y = p.y + gesture.offset.y;
       if (gesture.piece.team === "ball") constrainPiece(gesture.piece);
+      if (gesture.piece.team === "ball" &&
+        (beforeX !== gesture.piece.x || beforeY !== gesture.piece.y)) runAutoPosition();
       placePiece(gesture.target, gesture.piece);
       drawAim();
     } else if (gesture.drawing) {
@@ -715,6 +853,15 @@
       } else keepAimBriefly();
     }
     if (cancel) {
+      if (g.autoBefore) {
+        stopAutoAnimations();
+        state.pieces.forEach((p) => {
+          if (g.autoMoved.has(p.id)) {
+            Object.assign(p, g.autoBefore.find((q) => q.id === p.id));
+          }
+          placePiece(document.querySelector(`[data-id="${p.id}"]`), p);
+        });
+      }
       if (g.piece) {
         Object.assign(g.piece, g.original);
         placePiece(g.target, g.piece);
@@ -742,6 +889,18 @@
         } else state.arrows.push(arrow);
       }
     }
+    if (g.piece && g.piece.team !== "ball") {
+      for (const other of gestures.values()) {
+        const baseline = other.autoBefore?.find((p) => p.id === g.piece.id);
+        if (baseline) Object.assign(baseline, g.piece);
+      }
+    }
+    if (autoEnabled && g.piece && g.piece.team !== "ball" &&
+      ![...gestures.values()].some((other) => other.piece?.team === g.piece.team)) {
+      const selected = BoardModel.selectAutoAnchors(state.pieces, autoAnchors);
+      autoAnchors[g.piece.team] = selected[g.piece.team];
+      updateAutoUI();
+    }
     updateArrowExpiryPause();
     g.target?.classList.remove("dragging");
     if ($("court").hasPointerCapture(event.pointerId))
@@ -763,7 +922,7 @@
           { left: snapFrom.x + "%", top: snapFrom.y + "%" },
           { left: destination.x + "%", top: destination.y + "%" },
         ],
-        { duration: 120, easing: "ease-out" },
+        { duration: 240, easing: "ease-out" },
       );
     }
     if (doubleTap && !gestures.size) toggleCourtFit();
@@ -795,6 +954,7 @@
     }, "線を消しました。");
   $("reset").onclick = () =>
     change(() => {
+      setAuto("off");
       state = createInitialState();
       temporaryArrows = [];
       scheduleExpiry();
@@ -802,7 +962,9 @@
   function travel(from, to, message) {
     if (!from.length || gestures.size) return;
     to.push(copy(state));
+    stopAutoAnimations();
     state = from.pop();
+    autoAnchors = BoardModel.selectAutoAnchors(state.pieces, autoAnchors);
     render();
     announce(message);
   }
@@ -881,6 +1043,7 @@
       }
       change(
         () => {
+          setAuto("off");
           state.pieces = copy(saved.pieces);
         },
         "保存した配置を開きました：" + slotLabel(i),
@@ -980,10 +1143,19 @@
     change(() => {
       const p = state.pieces.find((p) => p.id === id);
       if (p.team === "ball") {
+        const beforeX = p.x, beforeY = p.y;
         p.x += dx;
         p.y += dy;
         constrainPiece(p);
-      } else movePlayerOnGrid(p, dx, dy);
+        if (p.x !== beforeX || p.y !== beforeY) runAutoPosition();
+        keepAimBriefly();
+      } else {
+        const wasAnimating = autoAnimations.has(p.id);
+        beginManualPosition(p, target);
+        if (wasAnimating) snapPlayerToGrid(p);
+        movePlayerOnGrid(p, dx, dy);
+        if (autoEnabled) autoAnchors = BoardModel.selectAutoAnchors(state.pieces, autoAnchors);
+      }
     }, "位置を調整しました。");
     document.querySelector(`[data-id="${id}"]`).focus({ preventScroll: true });
   });
