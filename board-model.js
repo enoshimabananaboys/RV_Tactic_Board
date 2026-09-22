@@ -176,8 +176,10 @@ const BoardModel = (() => {
       const preferred = previous[team] || [];
       const tie = (a, b) => Number(preferred.includes(b.id)) - Number(preferred.includes(a.id)) ||
         Number(b.number >= 4) - Number(a.number >= 4) || a.number - b.number;
+      const rightTie = (a, b) => Number(preferred.includes(b.id)) - Number(preferred.includes(a.id)) ||
+        Number(b.number >= 4) - Number(a.number >= 4) || b.number - a.number;
       const left = [...players].sort((a, b) => a.x - b.x || tie(a, b))[0];
-      const right = players.filter((p) => p !== left).sort((a, b) => b.x - a.x || tie(a, b))[0];
+      const right = players.filter((p) => p !== left).sort((a, b) => b.x - a.x || rightTie(a, b))[0];
       return [team, [left.id, right.id]];
     }));
   }
@@ -220,8 +222,37 @@ const BoardModel = (() => {
     const team = ball.y >= 50 ? "opponent" : "home";
     const defenders = pieces.filter((p) => p.team === team);
     const fixedIds = mode === "full" ? [] : anchors[team];
-    const fixed = defenders.filter((p) => fixedIds.includes(p.id));
-    const moving = defenders.filter((p) => !fixedIds.includes(p.id)).sort((a, b) => Number(a.number >= 4) - Number(b.number >= 4) || a.x - b.x || a.number - b.number);
+    // FULLでは前後衛を問わず左右端の2人を交点担当にする。ボールから
+    // アタックライン端へ向かう直線に、円がコート中央側から接する位置を優先する。
+    const edgeIds = mode === "full" ? anchors[team] : [];
+    const edgeCandidate = (p, side) => [...new Set([pieceDiameter(p), 1, 1.25])]
+      .map((diameter) => {
+        const radius = diameter / 2;
+        const bx = (ball.x - 7) * 9 / 86;
+        const by = (ball.y - 5) / 5;
+        const attack = team === "opponent" ? 6 : 12;
+        const cornerX = side === "left" ? 0 : 9;
+        const dx = cornerX - bx, dy = attack - by;
+        const py = attack +
+          (team === "opponent" ? 1 : -1) * (p.number >= 4 ? 1 : -1) * radius;
+        const signedDistance = (side === "left" ? -1 : 1) * Math.sign(dy) * radius;
+        const tangentX = bx +
+          (dx * (py - by) - signedDistance * Math.hypot(dx, dy)) / dy;
+        // 後衛側では接点が交点の奥になるため、接線位置がコート外へ出る場合がある。
+        // その場合も円全体はコート内に残し、交点方向を確実に覆う。
+        const x = Math.max(radius, Math.min(9 - radius, tangentX));
+        return { ...p, x: 7 + x * 86 / 9, y: 5 + py * 5 };
+      })
+      .find((candidate) => Math.abs(pieceDiameter(candidate, ball, true) -
+        Math.abs(candidate.y - (team === "opponent" ? 35 : 65)) / 5 * 2) < 1e-8);
+    const fixed = mode === "full"
+      ? edgeIds.map((id, index) => edgeCandidate(
+        defenders.find((p) => p.id === id), index ? "right" : "left",
+      )).filter(Boolean)
+      : defenders.filter((p) => fixedIds.includes(p.id));
+    if (mode === "full" && fixed.length !== 2) return [];
+    const movingIds = new Set([...fixedIds, ...edgeIds]);
+    const moving = defenders.filter((p) => !movingIds.has(p.id)).sort((a, b) => Number(a.number >= 4) - Number(b.number >= 4) || a.x - b.x || a.number - b.number);
     const left = fixed.length ? Math.min(...fixed.map((p) => p.x)) : 7;
     const right = fixed.length ? Math.max(...fixed.map((p) => p.x)) : 93;
     const originals = new Map(defenders.map((p) => [p.id, p]));

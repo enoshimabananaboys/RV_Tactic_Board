@@ -31,7 +31,8 @@ test("auto placement respects fixed players, grid, attack line, order and non-ov
       assert.equal(p.team, team);
       if (mode === "on") assert.ok(!anchors[team].includes(p.id));
       const col = (p.x - 7) / m.PLAYER_GRID.xStep;
-      assert.ok(Math.abs(col - Math.round(col)) < 1e-8);
+      if (mode !== "full" || !anchors[team].includes(p.id))
+        assert.ok(Math.abs(col - Math.round(col)) < 1e-8);
       assert.ok(Math.abs(Math.abs(p.y - (team === "opponent" ? 35 : 65)) / 5 - m.pieceDiameter(p, ball, true) / 2) < 1e-8);
       assert.ok(p.x >= (fixed.length ? Math.min(...fixed.map(q => q.x)) : 7) - 1e-8 && p.x <= (fixed.length ? Math.max(...fixed.map(q => q.x)) : 93) + 1e-8);
     }
@@ -90,6 +91,41 @@ test("FULL moves all six even when original anchors are crowded", () => {
   assert.equal(new Set(result.map(p=>p.id)).size,6);
 });
 
+test("FULL covers both attack-line intersections without wasting the edge players outside the target rays", () => {
+  for (const ballY of [20, 80]) {
+    const {pieces} = m.createInitialState();
+    const ball = pieces.find(p => p.team === "ball");
+    Object.assign(ball, {x: 50, y: ballY});
+    const team = ballY >= 50 ? "opponent" : "home";
+    // A front-row player may be selected for either intersection.
+    const players = pieces.filter(p => p.team === team);
+    players.find(p => p.number === 4).x = 7;
+    players.find(p => p.number === 5).x = 93;
+    const anchors = m.selectAutoAnchors(pieces);
+    const result = m.autoPosition(pieces, anchors, "full");
+    assert.equal(result.length, 6);
+    assert.deepEqual(anchors[team], [`${team === "home" ? "home" : "away"}-4`, `${team === "home" ? "home" : "away"}-5`]);
+    for (const [index, id] of anchors[team].entries()) {
+      const p = result.find(p => p.id === id);
+      const diameter = m.pieceDiameter(p, ball, true);
+      const attackDistance = Math.abs(p.y - (team === "opponent" ? 35 : 65)) / 5;
+      assert.ok(Math.abs(attackDistance - diameter / 2) < 1e-8);
+      const bx = (ball.x - 7) * 9 / 86, by = (ball.y - 5) / 5;
+      const px = (p.x - 7) * 9 / 86, py = (p.y - 5) / 5;
+      const attack = team === "opponent" ? 6 : 12;
+      const cornerX = index ? 9 : 0;
+      const dx = cornerX - bx, dy = attack - by;
+      const signedDistance = (dx * (py - by) - dy * (px - bx)) / Math.hypot(dx, dy);
+      const expectedSide = (index ? 1 : -1) * Math.sign(dy);
+      assert.ok(Math.abs(expectedSide * signedDistance - diameter / 2) < 1e-8,
+        "the corner ray must be tangent to a front-row defender from the inside");
+      assert.ok(px >= diameter / 2 - 1e-8 && px <= 9 - diameter / 2 + 1e-8,
+        "the whole defender stays inside the court");
+      assert.ok(p.number >= 4, "a front-row player can cover an intersection");
+    }
+  }
+});
+
 
 test("position retention includes exactly 10 percent but rejects larger losses and open lanes against zero", () => {
   assert.equal(m.shouldKeepAutoPosition(0.109999, 0.1), true);
@@ -109,14 +145,19 @@ test("ON and FULL retain horizontal positions for small changes and reposition w
     for (const x of [50.1, 50, 50.1, 50]) {
       pieces.find(p => p.team === "ball").x = x;
       const result = m.autoPosition(pieces, anchors, mode);
-      for (const p of result) assert.equal(p.x, baseline.find(q => q.id === p.id).x, mode + " keeps lateral positions through small oscillations");
+      for (const p of result) if (mode !== "full" || !anchors.opponent.includes(p.id))
+        assert.equal(p.x, baseline.find(q => q.id === p.id).x, mode + " keeps non-edge lateral positions through small oscillations");
       pieces = pieces.map(p => result.find(q => q.id === p.id) || p);
     }
     // Line contact follows a new radius even while x stays unchanged.
     const depthChange = structuredClone(baseline);
     depthChange.find(p => p.team === "ball").y = 60;
     const depthResult = m.autoPosition(depthChange, anchors, mode);
-    assert.ok(depthResult.every(p => p.x === baseline.find(q => q.id === p.id).x));
+    if (mode === "on")
+      assert.ok(depthResult.every(p => p.x === baseline.find(q => q.id === p.id).x));
+    else
+      assert.ok(depthResult.some(p => anchors.opponent.includes(p.id) &&
+        p.x !== baseline.find(q => q.id === p.id).x));
     assert.ok(depthResult.some(p => p.y !== baseline.find(q => q.id === p.id).y));
     pieces.find(p => p.team === "ball").x = 90;
     const ball = pieces.find(p => p.team === "ball");
