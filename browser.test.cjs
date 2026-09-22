@@ -512,7 +512,25 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     await touch("touchMove", [{ ...one, y: one.y - 35 }]);
     await touch("touchEnd", []);
     assert.equal(await page.locator("#arrow-lines line").count(), 1);
-    await page.locator("#undo").click();
+    // While an arrow remains, another arrow starts without a long press.
+    await touch("touchStart", [one]);
+    await touch("touchMove", [{ ...one, x: one.x + 35 }]);
+    await touch("touchEnd", []);
+    assert.equal(await page.locator("#arrow-lines line").count(), 2);
+    // Once all arrows are gone, drawing requires a long press again.
+    await page.locator("#clear").click();
+    await touch("touchStart", [one]);
+    await touch("touchMove", [{ ...one, x: one.x + 35 }]);
+    await touch("touchEnd", []);
+    assert.equal(await page.locator("#arrow-lines line").count(), 0);
+    // A completed long press without a line does not unlock quick drawing.
+    await touch("touchStart", [one]);
+    await page.waitForTimeout(550);
+    await touch("touchEnd", []);
+    await touch("touchStart", [one]);
+    await touch("touchMove", [{ ...one, x: one.x + 35 }]);
+    await touch("touchEnd", []);
+    assert.equal(await page.locator("#arrow-lines line").count(), 0);
     await touch("touchStart", [one]);
     await page.waitForTimeout(550);
     one = { ...one, y: one.y - 25 };

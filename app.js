@@ -53,7 +53,15 @@
   let temporaryArrows = [];
   let expiryTimer;
   let arrowExpiryPaused = false;
-  // 長押し成立から描画終了まで、既存の一時線も保持する。
+  function hasVisibleArrows() {
+    return (
+      state.arrows.length > 0 ||
+      temporaryArrows.some(
+        (arrow) => arrowExpiryPaused || arrow.expiresAt > Date.now(),
+      )
+    );
+  }
+  // 描画開始から終了まで、既存の一時線も保持する。
   // 中断や複数指パンへの切替でも解除し、消去を止めたままにしない。
   function updateArrowExpiryPause() {
     const drawing = [...gestures.values()].some(
@@ -691,7 +699,7 @@
         }
       : null;
   }
-  // 待機 → 長押し描画／1本指パン／複数指パンの順に操作を分岐する。
+  // 矢印があれば即時描画、なければ長押し待機／パンへ操作を分岐する。
   function startCourtGesture(event) {
     if (gestures.has(event.pointerId) || event.button !== 0) return;
     const target = event.target.closest(".piece");
@@ -724,7 +732,12 @@
       offset: piece ? { x: piece.x - start.x, y: piece.y - start.y } : null,
     });
     const pending = gestures.get(event.pointerId);
-    if (!piece)
+    if (!piece && hasVisibleArrows()) {
+      pending.drawing = true;
+      pending.tapMoved = true;
+      lastCourtTap = null;
+      updateArrowExpiryPause();
+    } else if (!piece) {
       pending.holdTimer = setTimeout(() => {
         if (pending.scrolling || pending.panning) return;
         pending.drawing = true;
@@ -732,6 +745,7 @@
         pending.tapMoved = true;
         lastCourtTap = null;
       }, TIMING.arrowHold);
+    }
     const touches = [...gestures.values()].filter(
       (g) => !g.piece && g.pointerType === "touch",
     );
