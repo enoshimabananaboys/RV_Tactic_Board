@@ -1035,7 +1035,7 @@
       announce("保存した配置を読み込めませんでした。");
     }
   }
-  $("reset-slots").onclick = () => {
+  function resetSlots() {
     try {
       localStorage.setItem(SLOTS_KEY, JSON.stringify(createDefaultSlots()));
       updateSlots();
@@ -1043,7 +1043,18 @@
     } catch {
       announce("保存できませんでした。ブラウザの保存設定を確認してください。");
     }
+  }
+  $("reset-slots").onclick = () => {
+    $("reset-slots-dialog").showModal();
   };
+  $("confirm-reset-slots").onclick = () => {
+    $("reset-slots-dialog").close();
+    resetSlots();
+  };
+  $("cancel-reset-slots").onclick = () => $("reset-slots-dialog").close();
+  $("reset-slots-dialog").addEventListener("close", () =>
+    $("reset-slots").focus({ preventScroll: true }),
+  );
   function saveSlot(i) {
     if (gestures.size) return;
     try {

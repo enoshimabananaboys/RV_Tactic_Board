@@ -702,11 +702,51 @@ main {
   flex-shrink: 0;
 }
 .tool-brand small {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin-top: 4px;
   font-size: 9px;
   font-weight: 400;
   letter-spacing: 0px;
+}
+.app-version {
+  white-space: nowrap;
+  color: rgb(102, 118, 106);
+}
+.confirm-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  border: 0px;
+  border-radius: 14px;
+  padding: 24px;
+  color: rgb(37, 59, 54);
+  box-shadow: rgba(23, 62, 55, 0.25) 0px 12px 40px;
+}
+.confirm-dialog::backdrop {
+  background: rgba(20, 35, 31, 0.52);
+}
+.confirm-dialog h2 {
+  margin: 0px 0px 22px;
+  font-size: 16px;
+  line-height: 1.7;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.confirm-actions button {
+  min-width: 82px;
+  min-height: 40px;
+  border: 1px solid rgb(213, 221, 204);
+  border-radius: 7px;
+  background: rgb(245, 247, 238);
+  color: rgb(35, 78, 62);
+}
+#confirm-reset-slots {
+  border-color: rgb(35, 78, 62);
+  background: rgb(35, 78, 62);
+  color: white;
 }
 .court .piece.ball {
   width: var(--ball-size);

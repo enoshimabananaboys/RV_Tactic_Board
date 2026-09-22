@@ -327,6 +327,14 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     // Reset saved slots without changing the current board, then check mirrored defaults.
     const boardBeforeReset = await positions();
     await page.locator("#reset-slots").click();
+    assert.equal(await page.locator("#reset-slots-dialog").isVisible(), true);
+    assert.equal(
+      await page.locator("#reset-slots-title").textContent(),
+      "登録した配置を初期値に戻します。よろしいですか？",
+    );
+    await page.locator("#cancel-reset-slots").click();
+    await page.locator("#reset-slots").click();
+    await page.locator("#confirm-reset-slots").click();
     assert.deepEqual(await positions(), boardBeforeReset);
     const defaults = await page.evaluate(() =>
       JSON.parse(localStorage.getItem("rv-tactic-board-v1-slots")),
@@ -397,6 +405,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     // Restore defaults and reload so later checks start without a recalled slot.
     await page.locator("#toggle-tools").click();
     await page.locator("#reset-slots").click();
+    await page.locator("#confirm-reset-slots").click();
     await page.reload();
     assert.deepEqual(await positions(), original);
     // Every line contact is reachable, including attack lines off the global grid.

@@ -21,7 +21,10 @@
           <div class="tool-brand">
             <span class="brand-icon" aria-hidden="true">RV</span
             ><span
-              >TACTIC BOARD<small>ローリングバレーボール作戦ボード</small></span
+              >TACTIC BOARD<small
+                ><span>ローリングバレーボール作戦ボード</span
+                ><span class="app-version">v.1.0.0</span></small
+              ></span
             >
           </div>
           <button
@@ -266,7 +269,7 @@
         <section>
           <h3>初期状態に戻す</h3>
           <p>
-            「初期位置へ」は、最後に呼び出した配置へ戻します。呼び出した配置を上書きした場合は、上書き後の最新配置へ戻ります。まだ配置を呼び出していない場合は、基本配置へ戻します。<br />ツール内の「初期値に戻す」は①〜⑤の登録内容をリセットします。
+            「初期位置へ」は、最後に呼び出した配置へ戻します。呼び出した配置を上書きした場合は、上書き後の最新配置へ戻ります。まだ配置を呼び出していない場合は、基本配置へ戻します。<br />ツール内の「初期値に戻す」は確認画面を表示します。「はい」を選ぶと①〜⑤の登録内容をリセットし、「いいえ」を選ぶと変更せずに閉じます。
           </p>
         </section>
         <details>
@@ -304,6 +307,19 @@
             </p>
           </section>
         </details>
+      </div>
+    </dialog>
+    <dialog
+      id="reset-slots-dialog"
+      class="confirm-dialog"
+      aria-labelledby="reset-slots-title"
+    >
+      <h2 id="reset-slots-title">
+        登録した配置を初期値に戻します。よろしいですか？
+      </h2>
+      <div class="confirm-actions">
+        <button id="confirm-reset-slots">はい</button>
+        <button id="cancel-reset-slots" autofocus>いいえ</button>
       </div>
     </dialog>
   </body>
