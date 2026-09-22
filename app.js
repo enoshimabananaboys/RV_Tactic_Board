@@ -16,8 +16,13 @@
     mouseSlop: 10,
     doubleTapDistance: 40,
   };
-  const { aimPolygon, createInitialState, isValidState, createDefaultSlots } =
-    BoardModel;
+  const {
+    PLAYER_GRID,
+    aimPolygon,
+    createInitialState,
+    isValidState,
+    createDefaultSlots,
+  } = BoardModel;
   const $ = (id) => document.getElementById(id);
   const KEY = "rv-tactic-board-v1";
 
@@ -232,10 +237,8 @@
   // 保存座標は常に縦向き（味方が下）。横向きへの変換は描画・入力の境界で行う。
   const screenPoint = (p) => (landscape ? { x: 100 - p.y, y: p.x } : p);
   const courtPoint = (p) => (landscape ? { x: p.y, y: 100 - p.x } : p);
-  function constrainPiece(p) {
-    p.x = Math.max(7, Math.min(93, p.x));
-    p.y = Math.max(5, Math.min(95, p.y));
-    if (p.team === "ball") return;
+  function pieceBounds(p) {
+    if (p.team === "ball") return { minX: 7, maxX: 93, minY: 5, maxY: 95 };
     const rect = $("court").getBoundingClientRect();
     const diameter = parseFloat(
       getComputedStyle($("court")).getPropertyValue("--piece-size"),
@@ -253,7 +256,75 @@
         : front
           ? [35 + clearance, 50 - clearance]
           : [5, 35 - clearance];
-    p.y = Math.max(min, Math.min(max, p.y));
+    return { minX: 7, maxX: 93, minY: min, maxY: max };
+  }
+  function constrainPiece(p) {
+    const bounds = pieceBounds(p);
+    p.x = Math.max(bounds.minX, Math.min(bounds.maxX, p.x));
+    p.y = Math.max(bounds.minY, Math.min(bounds.maxY, p.y));
+  }
+  function snapPlayerToGrid(p) {
+    if (p.team === "ball") return;
+    const bounds = pieceBounds(p);
+    const snapAxis = (value, origin, step, min, max) => {
+      const minIndex = Math.ceil((min - origin) / step - 1e-9);
+      const maxIndex = Math.floor((max - origin) / step + 1e-9);
+      const index = Math.max(
+        minIndex,
+        Math.min(maxIndex, Math.round((value - origin) / step)),
+      );
+      return origin + index * step;
+    };
+    p.x = snapAxis(
+      p.x,
+      PLAYER_GRID.xOrigin,
+      PLAYER_GRID.xStep,
+      bounds.minX,
+      bounds.maxX,
+    );
+    p.y = snapAxis(
+      p.y,
+      PLAYER_GRID.yOrigin,
+      PLAYER_GRID.yStep,
+      bounds.minY,
+      bounds.maxY,
+    );
+  }
+  function movePlayerOnGrid(p, dx, dy) {
+    const bounds = pieceBounds(p);
+    const moveAxis = (value, origin, step, direction, min, max) => {
+      const index = (value - origin) / step;
+      const nextIndex =
+        direction > 0
+          ? Math.floor(index + 1e-9) + 1
+          : Math.ceil(index - 1e-9) - 1;
+      return (
+        origin +
+        Math.max(
+          Math.ceil((min - origin) / step - 1e-9),
+          Math.min(Math.floor((max - origin) / step + 1e-9), nextIndex),
+        ) *
+          step
+      );
+    };
+    if (dx)
+      p.x = moveAxis(
+        p.x,
+        PLAYER_GRID.xOrigin,
+        PLAYER_GRID.xStep,
+        dx,
+        bounds.minX,
+        bounds.maxX,
+      );
+    if (dy)
+      p.y = moveAxis(
+        p.y,
+        PLAYER_GRID.yOrigin,
+        PLAYER_GRID.yStep,
+        dy,
+        bounds.minY,
+        bounds.maxY,
+      );
   }
   function placePiece(button, p) {
     const display = screenPoint(p);
@@ -349,8 +420,9 @@
   function updatePieceSize() {
     const rect = $("court").getBoundingClientRect();
     // 競技領域の幅9mは、縦表示の幅（横表示の高さ）の86%に相当する。
-    const diameter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
-    $("court").style.setProperty("--piece-size", `${diameter}px`);
+    const meter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
+    $("court").style.setProperty("--piece-size", `${meter * 0.9}px`);
+    $("court").style.setProperty("--ball-size", `${meter * 0.5}px`);
   }
   function render() {
     updatePieceSize();
@@ -368,7 +440,10 @@
           ? "ボール"
           : `${p.team === "home" ? "味方" : "相手"} ${p.number}番`,
       );
-      button.title = "ドラッグで移動・矢印キーで微調整";
+      button.title =
+        p.team === "ball"
+          ? "ドラッグで移動・矢印キーで微調整"
+          : "ドラッグまたは矢印キーで45cm単位に移動";
       placePiece(button, p);
       $("pieces").append(button);
     });
@@ -584,7 +659,8 @@
     if (gesture.piece) {
       gesture.piece.x = p.x + gesture.offset.x;
       gesture.piece.y = p.y + gesture.offset.y;
-      constrainPiece(gesture.piece);
+      if (gesture.piece.team === "ball") constrainPiece(gesture.piece);
+      else snapPlayerToGrid(gesture.piece);
       placePiece(gesture.target, gesture.piece);
       drawAim();
     } else if (gesture.drawing) {
@@ -885,10 +961,12 @@
     const [dx, dy] = landscape ? [delta[1], -delta[0]] : delta;
     change(() => {
       const p = state.pieces.find((p) => p.id === id);
-      p.x += dx;
-      p.y += dy;
-      constrainPiece(p);
-    }, "選手・ボールの位置を調整しました。");
+      if (p.team === "ball") {
+        p.x += dx;
+        p.y += dy;
+        constrainPiece(p);
+      } else movePlayerOnGrid(p, dx, dy);
+    }, "位置を調整しました。");
     document.querySelector(`[data-id="${id}"]`).focus({ preventScroll: true });
   });
   // 起動時のみ全体表示。利用者が向きを選び直した時は100%に戻す。

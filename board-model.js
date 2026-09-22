@@ -1,6 +1,14 @@
 // DOMや保存先に依存しない計算と配置データ。ブラウザとNode.jsで共用する。
 const BoardModel = (() => {
   "use strict";
+  const PLAYER_GRID = Object.freeze({
+    xOrigin: 7,
+    yOrigin: 5,
+    xStep: 86 / 20,
+    yStep: 90 / 40,
+  });
+  const gridX = (column) => PLAYER_GRID.xOrigin + column * PLAYER_GRID.xStep;
+  const gridY = (row) => PLAYER_GRID.yOrigin + row * PLAYER_GRID.yStep;
   // 縦向きの等方座標でレイと選手の円の交点を求め、向きによる歪みを防ぐ。
   function aimPolygon(ball, defenders, bounds, attackY, goalY) {
     const direction = Math.sign(goalY - ball.y);
@@ -42,12 +50,12 @@ const BoardModel = (() => {
     opponents: true,
     pieces: [
       ...[
-        [72, 82],
-        [50, 82],
-        [28, 82],
-        [72, 57.5],
-        [50, 57.5],
-        [28, 57.5],
+        [gridX(15), gridY(34)],
+        [gridX(10), gridY(34)],
+        [gridX(5), gridY(34)],
+        [gridX(15), gridY(23)],
+        [gridX(10), gridY(23)],
+        [gridX(5), gridY(23)],
       ].map(([x, y], i) => ({
         id: `home-${i + 1}`,
         team: "home",
@@ -56,12 +64,12 @@ const BoardModel = (() => {
         y,
       })),
       ...[
-        [28, 18],
-        [50, 18],
-        [72, 18],
-        [28, 42.5],
-        [50, 42.5],
-        [72, 42.5],
+        [gridX(5), gridY(6)],
+        [gridX(10), gridY(6)],
+        [gridX(15), gridY(6)],
+        [gridX(5), gridY(17)],
+        [gridX(10), gridY(17)],
+        [gridX(15), gridY(17)],
       ].map(([x, y], i) => ({
         id: `away-${i + 1}`,
         team: "opponent",
@@ -115,20 +123,20 @@ const BoardModel = (() => {
       const saved = createInitialState();
       const home = second
         ? [
-            [85.4, 70.5],
-            [57.8, 70.5],
-            [31.5, 70.5],
-            [71.6, 60.5],
-            [47.4, 60.5],
-            [21.6, 60.5],
+            [gridX(18), gridY(29)],
+            [gridX(12), gridY(29)],
+            [gridX(6), gridY(29)],
+            [gridX(15), gridY(25)],
+            [gridX(9), gridY(25)],
+            [gridX(3), gridY(25)],
           ]
         : [
-            [74.2, 70.5],
-            [57.8, 70.5],
-            [31.5, 70.5],
-            [85.2, 60.5],
-            [47.4, 60.5],
-            [21.6, 60.5],
+            [gridX(16), gridY(29)],
+            [gridX(12), gridY(29)],
+            [gridX(6), gridY(29)],
+            [gridX(18), gridY(25)],
+            [gridX(9), gridY(25)],
+            [gridX(3), gridY(25)],
           ];
       saved.pieces.forEach((p) => {
         const [x, y] =
@@ -153,6 +161,7 @@ const BoardModel = (() => {
   }
 
   return {
+    PLAYER_GRID,
     aimPolygon,
     createInitialState,
     isValidState,

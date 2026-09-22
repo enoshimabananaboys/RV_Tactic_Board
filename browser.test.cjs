@@ -85,15 +85,21 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     await setOrientation("portrait");
     const checkBallSize = async () => {
       const sizes = await page.locator("#court").evaluate((court) => {
-        const player = court
-          .querySelector(".piece:not(.ball)")
-          .getBoundingClientRect();
+        const rect = court.getBoundingClientRect();
+        const meter =
+          ((document
+            .querySelector(".workspace")
+            .classList.contains("landscape")
+            ? rect.height
+            : rect.width) *
+            0.86) /
+          9;
         const ball = court.querySelector(".piece.ball").getBoundingClientRect();
-        return { player: player.width, width: ball.width, height: ball.height };
+        return { expected: meter * 0.5, width: ball.width, height: ball.height };
       });
       assert.ok(
-        Math.abs(sizes.width - sizes.player / 2) < 0.1,
-        "ball diameter is half the player",
+        Math.abs(sizes.width - sizes.expected) < 0.1,
+        "ball diameter remains 50 cm",
       );
       assert.ok(
         Math.abs(sizes.height - sizes.width) < 0.1,
@@ -163,7 +169,14 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     }
     await page.locator("#toggle-tools").click();
     await page.locator('[data-id="home-1"]').focus();
+    const beforeKey = parseFloat(
+      await page.locator('[data-id="home-1"]').evaluate((el) => el.style.left),
+    );
     await page.keyboard.press("ArrowLeft");
+    const afterKey = parseFloat(
+      await page.locator('[data-id="home-1"]').evaluate((el) => el.style.left),
+    );
+    assert.ok(Math.abs(beforeKey - afterKey - 86 / 20) < 1e-8);
     assert.notDeepEqual(await positions(), original);
     await page.locator("#toggle-tools").click();
     await page.locator('[data-slot="0"]').click();
@@ -265,7 +278,8 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
               ? rect.height
               : rect.width) *
               0.86) /
-            9;
+            9 *
+            0.9;
           return [...court.querySelectorAll(".piece:not(.ball)")].map(
             (piece) => {
               const circle = piece.getBoundingClientRect();
@@ -282,7 +296,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
         sizing.forEach((size) => {
           assert.ok(
             Math.abs(size.width - size.expected) < 0.1,
-            "player diameter is 1 m",
+            "player diameter is 90 cm",
           );
           assert.ok(
             Math.abs(size.height - size.width) < 0.1,
@@ -373,6 +387,21 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     assert.notDeepEqual(
       bothMoved.find((p) => p[0] === "home-1"),
       baseline.find((p) => p[0] === "home-1"),
+    );
+    const movedPlayer = bothMoved.find((p) => p[0] === "home-1");
+    assert.ok(
+      Math.abs(
+        (parseFloat(movedPlayer[1]) - 7) / (86 / 20) -
+          Math.round((parseFloat(movedPlayer[1]) - 7) / (86 / 20)),
+      ) < 1e-8,
+      "dragged player x is on the 45 cm grid",
+    );
+    assert.ok(
+      Math.abs(
+        (parseFloat(movedPlayer[2]) - 5) / (90 / 40) -
+          Math.round((parseFloat(movedPlayer[2]) - 5) / (90 / 40)),
+      ) < 1e-8,
+      "dragged player y is on the 45 cm grid",
     );
     assert.notDeepEqual(
       bothMoved.find((p) => p[0] === "ball"),

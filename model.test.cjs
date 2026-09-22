@@ -2,15 +2,33 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  PLAYER_GRID,
   createInitialState,
   createDefaultSlots,
   isValidState,
 } = require("./board-model.js");
 
+const onPlayerGrid = (piece) =>
+  Number.isInteger(
+    Math.round(
+      ((piece.x - PLAYER_GRID.xOrigin) / PLAYER_GRID.xStep) * 1e9,
+    ) / 1e9,
+  ) &&
+  Number.isInteger(
+    Math.round(
+      ((piece.y - PLAYER_GRID.yOrigin) / PLAYER_GRID.yStep) * 1e9,
+    ) / 1e9,
+  );
+
 test("default slots are valid and independent", () => {
   const slots = createDefaultSlots();
   assert.equal(slots.length, 5);
   slots.forEach((slot) => assert.ok(isValidState(slot)));
+  slots.forEach((slot) =>
+    slot.pieces
+      .filter((piece) => piece.team !== "ball")
+      .forEach((piece) => assert.ok(onPlayerGrid(piece))),
+  );
   const original = createInitialState();
   slots[0].pieces[0].x = 7;
   slots[1].pieces[0].x = 8;
