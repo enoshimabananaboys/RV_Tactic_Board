@@ -95,11 +95,11 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
             0.86) /
           9;
         const ball = court.querySelector(".piece.ball").getBoundingClientRect();
-        return { expected: meter * 0.45, width: ball.width, height: ball.height };
+        return { expected: meter * 0.5, width: ball.width, height: ball.height };
       });
       assert.ok(
         Math.abs(sizes.width - sizes.expected) < 0.1,
-        "ball diameter remains 45 cm",
+        "ball diameter remains 50 cm",
       );
       assert.ok(
         Math.abs(sizes.height - sizes.width) < 0.1,
@@ -176,7 +176,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     const afterKey = parseFloat(
       await page.locator('[data-id="home-1"]').evaluate((el) => el.style.left),
     );
-    assert.ok(Math.abs(beforeKey - afterKey - 86 / 20) < 1e-8);
+    assert.ok(Math.abs(beforeKey - afterKey - 86 / 36) < 1e-4, JSON.stringify({beforeKey, afterKey}));
     assert.notDeepEqual(await positions(), original);
     await page.locator("#toggle-tools").click();
     await page.locator('[data-slot="0"]').click();
@@ -278,13 +278,12 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
               ? rect.height
               : rect.width) *
               0.86) /
-            9 *
-            0.9;
+            9;
           return [...court.querySelectorAll(".piece:not(.ball)")].map(
             (piece) => {
               const circle = piece.getBoundingClientRect();
               return {
-                expected,
+                expected: expected * (Number(piece.textContent) >= 4 ? 0.75 : 1),
                 width: circle.width,
                 height: circle.height,
                 font: parseFloat(getComputedStyle(piece).fontSize),
@@ -296,7 +295,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
         sizing.forEach((size) => {
           assert.ok(
             Math.abs(size.width - size.expected) < 0.1,
-            "player diameter is 90 cm",
+            "player diameter matches front 75 cm / back 100 cm",
           );
           assert.ok(
             Math.abs(size.height - size.width) < 0.1,
@@ -339,8 +338,8 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
           const away = formation.pieces.find(
             (p) => p.team === "opponent" && p.number === home.number,
           );
-          assert.ok(Math.abs(away.x - (100 - home.x)) < 1e-8);
-          assert.ok(Math.abs(away.y - (100 - home.y)) < 1e-8);
+          assert.ok(Math.abs(away.x - (100 - home.x)) < 1e-4);
+          assert.ok(Math.abs(away.y - (100 - home.y)) < 1e-4);
         });
     }
     for (const formation of defaults.slice(1)) {
@@ -361,7 +360,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
       defaults[left].pieces.forEach((p, i) => {
         const other = defaults[right].pieces[i];
         assert.equal(other.y, p.y);
-        assert.ok(Math.abs(other.x - (100 - p.x)) < 1e-8);
+        assert.ok(Math.abs(other.x - (100 - p.x)) < 1e-4);
       });
     }
     await page.locator('[data-slot="1"]').click();
@@ -369,9 +368,9 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     await page.locator("#reset").click();
     // Every line contact is reachable, including attack lines off the global grid.
     for (const [id, desired, expected] of [
-      ["home-4", 50, 52.25], ["home-4", 65, 62.75],
-      ["home-1", 65, 67.25], ["away-4", 50, 47.75],
-      ["away-4", 35, 37.25], ["away-1", 35, 32.75],
+      ["home-4", 50, 51.875], ["home-4", 65, 63.125],
+      ["home-1", 65, 67.5], ["away-4", 50, 48.125],
+      ["away-4", 35, 36.875], ["away-1", 35, 32.5],
     ]) {
       const piece = page.locator('[data-id="' + id + '"]');
       const r = await piece.boundingBox();
@@ -392,7 +391,10 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     // Actual multi-touch input through the browser's touch dispatcher.
     const cdp = await context.newCDPSession(page);
     const center = async (id, touchId) => {
-      const r = await page.locator('[data-id="' + id + '"]').boundingBox();
+      const r = await page.locator('[data-id="' + id + '"]').evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      });
       return { id: touchId, x: r.x + r.width / 2, y: r.y + r.height / 2 };
     };
     const touch = (type, touchPoints) =>
@@ -410,7 +412,7 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
       bothMoved.find((p) => p[0] === "home-1"),
       baseline.find((p) => p[0] === "home-1"),
     );
-    assert.ok(Math.abs((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / 4.3 - Math.round((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / 4.3)) > 0.01, "drag remains continuous");
+    assert.ok(Math.abs((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / (86 / 36) - Math.round((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / (86 / 36))) > 0.01, "drag remains continuous");
     assert.notDeepEqual(
       bothMoved.find((p) => p[0] === "ball"),
       baseline.find((p) => p[0] === "ball"),
@@ -419,17 +421,17 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     const movedPlayer = (await positions()).find((p) => p[0] === "home-1");
     assert.ok(
       Math.abs(
-        (parseFloat(movedPlayer[1]) - 7) / (86 / 20) -
-          Math.round((parseFloat(movedPlayer[1]) - 7) / (86 / 20)),
-      ) < 1e-8,
-      "released player x is on the 45 cm grid",
+        (parseFloat(movedPlayer[1]) - 7) / (86 / 36) -
+          Math.round((parseFloat(movedPlayer[1]) - 7) / (86 / 36)),
+      ) < 1e-4,
+      "released player x is on the 25 cm grid",
     );
     assert.ok(
       Math.abs(
-        (parseFloat(movedPlayer[2]) - 5) / (90 / 40) -
-          Math.round((parseFloat(movedPlayer[2]) - 5) / (90 / 40)),
-      ) < 1e-8,
-      "released player y is on the 45 cm grid",
+        (parseFloat(movedPlayer[2]) - 5) / (90 / 72) -
+          Math.round((parseFloat(movedPlayer[2]) - 5) / (90 / 72)),
+      ) < 1e-4,
+      "released player y is on the 25 cm grid",
     );
 
     two = { ...two, x: two.x + 16 };

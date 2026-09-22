@@ -4,9 +4,12 @@ const BoardModel = (() => {
   const PLAYER_GRID = Object.freeze({
     xOrigin: 7,
     yOrigin: 5,
-    xStep: 86 / 20,
-    yStep: 90 / 40,
+    xStep: 86 / 36,
+    yStep: 90 / 72,
   });
+  // 直径（m）。前衛4〜6番・後衛1〜3番で描画と接触判定を共用する。
+  const pieceDiameter = (p) =>
+    p.team === "ball" ? 0.5 : p.number >= 4 ? 0.75 : 1;
   const gridX = (column) => PLAYER_GRID.xOrigin + column * PLAYER_GRID.xStep;
   const gridY = (row) => PLAYER_GRID.yOrigin + row * PLAYER_GRID.yStep;
   // 縦向きの等方座標でレイと選手の円の交点を求め、向きによる歪みを防ぐ。
@@ -50,12 +53,12 @@ const BoardModel = (() => {
     opponents: true,
     pieces: [
       ...[
-        [gridX(15), gridY(34)],
-        [gridX(10), gridY(34)],
-        [gridX(5), gridY(34)],
-        [gridX(15), gridY(23)],
-        [gridX(10), gridY(23)],
-        [gridX(5), gridY(23)],
+        [gridX(27), gridY(61)],
+        [gridX(18), gridY(61)],
+        [gridX(9), gridY(61)],
+        [gridX(27), gridY(41)],
+        [gridX(18), gridY(41)],
+        [gridX(9), gridY(41)],
       ].map(([x, y], i) => ({
         id: `home-${i + 1}`,
         team: "home",
@@ -64,12 +67,12 @@ const BoardModel = (() => {
         y,
       })),
       ...[
-        [gridX(5), gridY(6)],
-        [gridX(10), gridY(6)],
-        [gridX(15), gridY(6)],
-        [gridX(5), gridY(17)],
-        [gridX(10), gridY(17)],
-        [gridX(15), gridY(17)],
+        [gridX(9), gridY(11)],
+        [gridX(18), gridY(11)],
+        [gridX(27), gridY(11)],
+        [gridX(9), gridY(31)],
+        [gridX(18), gridY(31)],
+        [gridX(27), gridY(31)],
       ].map(([x, y], i) => ({
         id: `away-${i + 1}`,
         team: "opponent",
@@ -123,20 +126,20 @@ const BoardModel = (() => {
       const saved = createInitialState();
       const home = second
         ? [
-            [gridX(18), gridY(29)],
-            [gridX(12), gridY(29)],
-            [gridX(6), gridY(29)],
-            [gridX(15), gridY(25)],
-            [gridX(9), gridY(25)],
-            [gridX(3), gridY(25)],
+            [gridX(32), gridY(52)],
+            [gridX(22), gridY(52)],
+            [gridX(11), gridY(52)],
+            [gridX(27), gridY(45)],
+            [gridX(16), gridY(45)],
+            [gridX(5), gridY(45)],
           ]
         : [
-            [gridX(16), gridY(29)],
-            [gridX(12), gridY(29)],
-            [gridX(6), gridY(29)],
-            [gridX(18), gridY(25)],
-            [gridX(9), gridY(25)],
-            [gridX(3), gridY(25)],
+            [gridX(29), gridY(52)],
+            [gridX(22), gridY(52)],
+            [gridX(11), gridY(52)],
+            [gridX(32), gridY(45)],
+            [gridX(16), gridY(45)],
+            [gridX(5), gridY(45)],
           ];
       saved.pieces.forEach((p) => {
         const [x, y] =
@@ -162,6 +165,7 @@ const BoardModel = (() => {
 
   return {
     PLAYER_GRID,
+    pieceDiameter,
     aimPolygon,
     createInitialState,
     isValidState,

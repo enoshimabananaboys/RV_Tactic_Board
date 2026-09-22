@@ -18,6 +18,7 @@
   };
   const {
     PLAYER_GRID,
+    pieceDiameter,
     aimPolygon,
     createInitialState,
     isValidState,
@@ -239,8 +240,8 @@
   const courtPoint = (p) => (landscape ? { x: p.y, y: 100 - p.x } : p);
   function pieceBounds(p) {
     if (p.team === "ball") return { minX: 7, maxX: 93, minY: 5, maxY: 95 };
-    // 半径45cm。ラインの描画幅は計算に含めない。
-    const clearance = PLAYER_GRID.yStep;
+    // 選手ごとの半径をコート座標へ換算。ラインの描画幅は含めない。
+    const clearance = (pieceDiameter(p) / 2 / 18) * 90;
     const front = p.number >= 4;
     const [min, max] =
       p.team === "home"
@@ -372,13 +373,12 @@
       y: (p.y * height) / 100,
     });
     const target = ball.y >= 50 ? "opponent" : "home";
-    const radius =
-      parseFloat(
-        getComputedStyle($("court")).getPropertyValue("--piece-size"),
-      ) / 2;
     const defenders = state.pieces
       .filter((p) => p.team === target)
-      .map((p) => ({ ...toPixel(p), radius }));
+      .map((p) => ({
+        ...toPixel(p),
+        radius: ((width * 0.86) / 9) * pieceDiameter(p) / 2,
+      }));
     const points = aimPolygon(
       toPixel(ball),
       defenders,
@@ -406,8 +406,18 @@
     const rect = $("court").getBoundingClientRect();
     // 競技領域の幅9mは、縦表示の幅（横表示の高さ）の86%に相当する。
     const meter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
-    $("court").style.setProperty("--piece-size", `${meter * 0.9}px`);
-    $("court").style.setProperty("--ball-size", `${meter * 0.45}px`);
+    $("court").style.setProperty(
+      "--front-size",
+      `${meter * pieceDiameter({ number: 4 })}px`,
+    );
+    $("court").style.setProperty(
+      "--back-size",
+      `${meter * pieceDiameter({ number: 1 })}px`,
+    );
+    $("court").style.setProperty(
+      "--ball-size",
+      `${meter * pieceDiameter({ team: "ball" })}px`,
+    );
   }
   function render() {
     updatePieceSize();
@@ -418,6 +428,11 @@
       const button = document.createElement("button");
       button.className = `piece ${p.team}`;
       button.dataset.id = p.id;
+      if (p.team !== "ball")
+        button.style.setProperty(
+          "--piece-size",
+          p.number >= 4 ? "var(--front-size)" : "var(--back-size)",
+        );
       button.textContent = p.team === "ball" ? "" : p.number;
       button.setAttribute(
         "aria-label",
@@ -428,7 +443,7 @@
       button.title =
         p.team === "ball"
           ? "ドラッグで移動・矢印キーで微調整"
-          : "ドラッグ後に45cm単位へ整列・矢印キーで移動";
+          : "ドラッグ後に25cm単位へ整列・矢印キーで移動";
       placePiece(button, p);
       $("pieces").append(button);
     });
