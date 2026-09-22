@@ -26,11 +26,14 @@
   } = BoardModel;
   const $ = (id) => document.getElementById(id);
   const KEY = "rv-tactic-board-v1";
+  const SLOTS_KEY = KEY + "-slots";
 
   // 配置・表示状態・指ごとの操作を分ける。一時矢印は履歴に含めない。
   let state = createInitialState(),
     landscape = false,
     zoom = 1;
+  // 再読み込みまでは、最後に呼び出した枠の最新内容を「初期位置」として扱う。
+  let recalledSlotIndex = null;
   let pinch = null,
     lastCourtTap = null;
   const gestures = new Map();
@@ -966,13 +969,23 @@
       temporaryArrows = [];
       scheduleExpiry();
     }, "線を消しました。");
-  $("reset").onclick = () =>
-    change(() => {
-      setAuto("off");
-      state = createInitialState();
-      temporaryArrows = [];
-      scheduleExpiry();
-    }, "初期配置に戻しました。元に戻すこともできます。");
+  $("reset").onclick = () => {
+    try {
+      const initial =
+        recalledSlotIndex === null
+          ? createInitialState()
+          : readSlots()[recalledSlotIndex];
+      change(() => {
+        setAuto("off");
+        state = copy(initial);
+        state.arrows = [];
+        temporaryArrows = [];
+        scheduleExpiry();
+      }, "初期位置に戻しました。元に戻すこともできます。");
+    } catch {
+      announce("保存した配置を読み込めませんでした。");
+    }
+  };
   function travel(from, to, message) {
     if (!from.length || gestures.size) return;
     to.push(copy(state));
@@ -984,7 +997,6 @@
   }
   $("undo").onclick = () => travel(undo, redo, "ひとつ前の状態に戻しました。");
   $("redo").onclick = () => travel(redo, undo, "操作をやり直しました。");
-  const SLOTS_KEY = KEY + "-slots";
   const slotButtons = [...document.querySelectorAll(".position-slot")];
   const slotLabel = (i) => ["①", "②", "③", "④", "⑤"][i];
   // 新形式がない場合だけ旧1枠形式を読む。保存データを検証してから使用する。
@@ -1059,6 +1071,7 @@
         () => {
           setAuto("off");
           state.pieces = copy(saved.pieces);
+          recalledSlotIndex = i;
         },
         "保存した配置を開きました：" + slotLabel(i),
       );

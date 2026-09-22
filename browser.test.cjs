@@ -364,8 +364,41 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
       });
     }
     await page.locator('[data-slot="1"]').click();
-    assert.notDeepEqual(await positions(), original);
+    const recalledFormation = await positions();
+    assert.notDeepEqual(recalledFormation, original);
+    await page.locator("#toggle-tools").click();
+    await page.locator('[data-id="home-1"]').focus();
+    await page.keyboard.press("ArrowLeft");
+    assert.notDeepEqual(await positions(), recalledFormation);
     await page.locator("#reset").click();
+    assert.deepEqual(
+      await positions(),
+      recalledFormation,
+      "reset returns to the last recalled formation",
+    );
+
+    // Overwriting the recalled slot changes the reset destination immediately.
+    await page.locator('[data-id="home-1"]').focus();
+    await page.keyboard.press("ArrowLeft");
+    const overwrittenFormation = await positions();
+    await page.locator("#toggle-tools").click();
+    await page.locator('[data-slot="1"]').click({ delay: 750 });
+    await page.locator("#toggle-tools").click();
+    await page.locator('[data-id="home-1"]').focus();
+    await page.keyboard.press("ArrowLeft");
+    assert.notDeepEqual(await positions(), overwrittenFormation);
+    await page.locator("#reset").click();
+    assert.deepEqual(
+      await positions(),
+      overwrittenFormation,
+      "reset rereads the latest content of the recalled slot",
+    );
+
+    // Restore defaults and reload so later checks start without a recalled slot.
+    await page.locator("#toggle-tools").click();
+    await page.locator("#reset-slots").click();
+    await page.reload();
+    assert.deepEqual(await positions(), original);
     // Every line contact is reachable, including attack lines off the global grid.
     for (const [id, desired, expected] of [
       ["home-4", 50, 51.875], ["home-4", 65, 63.125],
