@@ -70,11 +70,11 @@ test("impossible crowded anchors leave the formation unchanged", () => {
 
 test("adaptive diameters use center distance, inclusive thresholds, and role minima", () => {
   const ball = {team:"ball",x:50,y:50};
-  for (const number of [1,4]) for (const distance of [0,2.999999,3,3.000001,4.999999,5,5.000001,8]) {
+  for (const number of [1,4]) for (const distance of [0,3.499999,3.5,3.500001,4.999999,5,5.000001,8]) {
     const p = {team:"home",number,x:50,y:50+distance*5};
     const minimum = number >= 4 ? 0.75 : 1;
     assert.equal(m.pieceDiameter(p,ball,false),minimum);
-    assert.equal(m.pieceDiameter(p,ball,true),distance>=5 ? 1.25 : distance>=3 ? 1 : minimum);
+    assert.equal(m.pieceDiameter(p,ball,true),distance>=5 ? 1.25 : distance>=3.5 ? 1 : minimum);
     const horizontal = {...p,x:50+distance*86/9,y:50};
     assert.equal(m.pieceDiameter(horizontal,ball,true),m.pieceDiameter(p,ball,true));
   }

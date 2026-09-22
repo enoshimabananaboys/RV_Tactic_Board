@@ -14,7 +14,7 @@ const BoardModel = (() => {
     if (!adaptive || !ball) return minimum;
     const distance = Math.hypot((p.x - ball.x) * 9 / 86, (p.y - ball.y) / 5);
     if (distance >= 5 - 1e-10) return 1.25;
-    return distance >= 3 - 1e-10 ? 1 : minimum;
+    return distance >= 3.5 - 1e-10 ? 1 : minimum;
   }
   const gridX = (column) => PLAYER_GRID.xOrigin + column * PLAYER_GRID.xStep;
   const gridY = (row) => PLAYER_GRID.yOrigin + row * PLAYER_GRID.yStep;
