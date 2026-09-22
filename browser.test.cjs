@@ -95,11 +95,11 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
             0.86) /
           9;
         const ball = court.querySelector(".piece.ball").getBoundingClientRect();
-        return { expected: meter * 0.5, width: ball.width, height: ball.height };
+        return { expected: meter * 0.45, width: ball.width, height: ball.height };
       });
       assert.ok(
         Math.abs(sizes.width - sizes.expected) < 0.1,
-        "ball diameter remains 50 cm",
+        "ball diameter remains 45 cm",
       );
       assert.ok(
         Math.abs(sizes.height - sizes.width) < 0.1,
@@ -367,6 +367,28 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     await page.locator('[data-slot="1"]').click();
     assert.notDeepEqual(await positions(), original);
     await page.locator("#reset").click();
+    // Every line contact is reachable, including attack lines off the global grid.
+    for (const [id, desired, expected] of [
+      ["home-4", 50, 52.25], ["home-4", 65, 62.75],
+      ["home-1", 65, 67.25], ["away-4", 50, 47.75],
+      ["away-4", 35, 37.25], ["away-1", 35, 32.75],
+    ]) {
+      const piece = page.locator('[data-id="' + id + '"]');
+      const r = await piece.boundingBox();
+      const c = await page.locator('#court').boundingBox();
+      await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(r.x + r.width / 2, c.y + c.height * desired / 100);
+      const during = await piece.evaluate(el => parseFloat(el.style.top));
+      await page.mouse.up();
+      const result = await piece.evaluate(el => ({ after: parseFloat(el.style.top), duration: el.getAnimations()[0]?.effect.getTiming().duration }));
+      result.during = during;
+      assert.ok(Math.abs(result.during - desired) < 0.05, 'no player area restriction during drag: ' + JSON.stringify({id, desired, result}));
+      assert.ok(Math.abs(result.after - expected) < 1e-6, 'touches zero-width line on release');
+      assert.equal(result.duration, 120);
+      await page.waitForTimeout(140);
+    }
+    await page.locator('#reset').click();
     // Actual multi-touch input through the browser's touch dispatcher.
     const cdp = await context.newCDPSession(page);
     const center = async (id, touchId) => {
@@ -388,26 +410,28 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
       bothMoved.find((p) => p[0] === "home-1"),
       baseline.find((p) => p[0] === "home-1"),
     );
-    const movedPlayer = bothMoved.find((p) => p[0] === "home-1");
+    assert.ok(Math.abs((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / 4.3 - Math.round((parseFloat(bothMoved.find(p => p[0] === "home-1")[1]) - 7) / 4.3)) > 0.01, "drag remains continuous");
+    assert.notDeepEqual(
+      bothMoved.find((p) => p[0] === "ball"),
+      baseline.find((p) => p[0] === "ball"),
+    );
+    await touch("touchEnd", [one]);
+    const movedPlayer = (await positions()).find((p) => p[0] === "home-1");
     assert.ok(
       Math.abs(
         (parseFloat(movedPlayer[1]) - 7) / (86 / 20) -
           Math.round((parseFloat(movedPlayer[1]) - 7) / (86 / 20)),
       ) < 1e-8,
-      "dragged player x is on the 45 cm grid",
+      "released player x is on the 45 cm grid",
     );
     assert.ok(
       Math.abs(
         (parseFloat(movedPlayer[2]) - 5) / (90 / 40) -
           Math.round((parseFloat(movedPlayer[2]) - 5) / (90 / 40)),
       ) < 1e-8,
-      "dragged player y is on the 45 cm grid",
+      "released player y is on the 45 cm grid",
     );
-    assert.notDeepEqual(
-      bothMoved.find((p) => p[0] === "ball"),
-      baseline.find((p) => p[0] === "ball"),
-    );
-    await touch("touchEnd", [one]);
+
     two = { ...two, x: two.x + 16 };
     await touch("touchMove", [two]);
     await page.waitForFunction(
@@ -568,9 +592,9 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
     await page.clock.runFor(6000);
     assert.equal(await page.locator("#arrow-lines line").count(), 2);
     await touch("touchEnd", []);
-    await page.clock.runFor(4999);
+    await page.clock.runFor(4900);
     assert.equal(await page.locator("#arrow-lines line").count(), 2);
-    await page.clock.runFor(2);
+    await page.clock.runFor(101);
     assert.equal(await page.locator("#arrow-lines line").count(), 0);
     // 描かずに離す・キャンセル・2本指切替でも、5秒後の消去を再開する。
     for (const ending of ["release", "cancel", "pinch"]) {
@@ -585,9 +609,9 @@ test("saved formations, responsive toolbar, and offline PWA", async () => {
         await touch("touchEnd", []);
       } else {
         await touch(ending === "cancel" ? "touchCancel" : "touchEnd", []);
-        await page.clock.runFor(4999);
+        await page.clock.runFor(4900);
         assert.equal(await page.locator("#arrow-lines line").count(), 1);
-        await page.clock.runFor(2);
+        await page.clock.runFor(101);
         assert.equal(await page.locator("#arrow-lines line").count(), 0);
       }
     }

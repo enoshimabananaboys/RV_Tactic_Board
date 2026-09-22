@@ -239,14 +239,8 @@
   const courtPoint = (p) => (landscape ? { x: p.y, y: 100 - p.x } : p);
   function pieceBounds(p) {
     if (p.team === "ball") return { minX: 7, maxX: 93, minY: 5, maxY: 95 };
-    const rect = $("court").getBoundingClientRect();
-    const diameter = parseFloat(
-      getComputedStyle($("court")).getPropertyValue("--piece-size"),
-    );
-    const clearance = Math.min(
-      7.4,
-      ((diameter / 2 + 1) / (landscape ? rect.width : rect.height)) * 100,
-    );
+    // 半径45cm。ラインの描画幅は計算に含めない。
+    const clearance = PLAYER_GRID.yStep;
     const front = p.number >= 4;
     const [min, max] =
       p.team === "home"
@@ -267,13 +261,11 @@
     if (p.team === "ball") return;
     const bounds = pieceBounds(p);
     const snapAxis = (value, origin, step, min, max) => {
-      const minIndex = Math.ceil((min - origin) / step - 1e-9);
-      const maxIndex = Math.floor((max - origin) / step + 1e-9);
-      const index = Math.max(
-        minIndex,
-        Math.min(maxIndex, Math.round((value - origin) / step)),
+      const grid = origin + Math.round((value - origin) / step) * step;
+      const candidates = [min, max, Math.max(min, Math.min(max, grid))];
+      return candidates.reduce((best, candidate) =>
+        Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
       );
-      return origin + index * step;
     };
     p.x = snapAxis(
       p.x,
@@ -298,14 +290,7 @@
         direction > 0
           ? Math.floor(index + 1e-9) + 1
           : Math.ceil(index - 1e-9) - 1;
-      return (
-        origin +
-        Math.max(
-          Math.ceil((min - origin) / step - 1e-9),
-          Math.min(Math.floor((max - origin) / step + 1e-9), nextIndex),
-        ) *
-          step
-      );
+      return Math.max(min, Math.min(max, origin + nextIndex * step));
     };
     if (dx)
       p.x = moveAxis(
@@ -422,7 +407,7 @@
     // 競技領域の幅9mは、縦表示の幅（横表示の高さ）の86%に相当する。
     const meter = ((landscape ? rect.height : rect.width) * 0.86) / 9;
     $("court").style.setProperty("--piece-size", `${meter * 0.9}px`);
-    $("court").style.setProperty("--ball-size", `${meter * 0.5}px`);
+    $("court").style.setProperty("--ball-size", `${meter * 0.45}px`);
   }
   function render() {
     updatePieceSize();
@@ -443,7 +428,7 @@
       button.title =
         p.team === "ball"
           ? "ドラッグで移動・矢印キーで微調整"
-          : "ドラッグまたは矢印キーで45cm単位に移動";
+          : "ドラッグ後に45cm単位へ整列・矢印キーで移動";
       placePiece(button, p);
       $("pieces").append(button);
     });
@@ -660,7 +645,6 @@
       gesture.piece.x = p.x + gesture.offset.x;
       gesture.piece.y = p.y + gesture.offset.y;
       if (gesture.piece.team === "ball") constrainPiece(gesture.piece);
-      else snapPlayerToGrid(gesture.piece);
       placePiece(gesture.target, gesture.piece);
       drawAim();
     } else if (gesture.drawing) {
@@ -699,6 +683,14 @@
       isTap && !doubleTap
         ? { time: Date.now(), x: event.clientX, y: event.clientY }
         : null;
+    const snapFrom =
+      !cancel && g.piece && g.piece.team !== "ball"
+        ? screenPoint({ ...g.piece })
+        : null;
+    if (snapFrom) {
+      snapPlayerToGrid(g.piece);
+      placePiece(g.target, g.piece);
+    }
     gestures.delete(event.pointerId);
     if (g.scrolling) resetPinch();
     if (g.piece?.team === "ball") {
@@ -747,6 +739,17 @@
     } else {
       drawArrows();
       drawAim();
+    }
+    if (snapFrom) {
+      const target = document.querySelector('[data-id="' + g.piece.id + '"]');
+      const destination = screenPoint(g.piece);
+      target.animate(
+        [
+          { left: snapFrom.x + "%", top: snapFrom.y + "%" },
+          { left: destination.x + "%", top: destination.y + "%" },
+        ],
+        { duration: 120, easing: "ease-out" },
+      );
     }
     if (doubleTap && !gestures.size) toggleCourtFit();
   }
