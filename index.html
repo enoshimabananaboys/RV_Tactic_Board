@@ -42,18 +42,6 @@
               ><button id="landscape" aria-pressed="false">横</button>
             </div>
           </div>
-          <label class="line-setting" for="line-lifetime"
-            >線の表示<select id="line-lifetime">
-              <option value="temporary">5秒後に消す</option>
-              <option value="permanent">残す</option>
-            </select></label
-          >
-          <label class="line-setting" for="aim-visibility"
-            >狙える範囲<select id="aim-visibility">
-              <option value="recent">ボールを離して5秒後に消す</option>
-              <option value="always">常に表示する</option>
-            </select></label
-          >
           <div class="divider"></div>
           <div class="section-title"><span>配置と作戦</span></div>
           <p class="formation-help">
@@ -106,6 +94,7 @@
             </button>
           </div>
           <div class="slot-actions">
+            <button id="reset">呼び出した配置へ戻す</button>
             <button
               id="reset-slots"
               title="①〜⑤の登録内容を標準の配置に戻します"
@@ -134,9 +123,34 @@
               </button>
             </div>
             <div class="top-actions">
-              <button id="auto-position" aria-pressed="false" title="自動位置OFF → ON（中4人）→ FULL（全6人）">自動位置OFF</button>
-              <button id="clear">矢印消去</button
-              ><button id="reset">初期位置へ</button>
+              <div class="action-menu">
+                <button id="auto-position" aria-expanded="false" aria-controls="auto-menu">自動位置：オフ ▾</button>
+                <div id="auto-menu" class="action-menu-panel" hidden>
+                  <strong>自動位置</strong>
+                  <button data-auto="off">オフ<small>選手を自動で動かさない</small></button>
+                  <button data-auto="on">中央4人<small>中央の4人を自動で動かす</small></button>
+                  <button data-auto="full">全員<small>6人全員を自動で動かす</small></button>
+                </div>
+              </div>
+              <div class="action-menu">
+                <button id="aim-button" aria-expanded="false" aria-controls="aim-menu">狙える範囲：一時表示 ▾</button>
+                <div id="aim-menu" class="action-menu-panel" hidden>
+                  <strong>狙える範囲</strong>
+                  <button data-aim="recent">一時表示<small>ボールを離して5秒後に消す</small></button>
+                  <button data-aim="always">常に表示<small>ボールを動かしていない間も表示</small></button>
+                  <button data-aim="never">表示しない</button>
+                </div>
+              </div>
+              <div class="action-menu">
+                <button id="line-button" aria-expanded="false" aria-controls="line-menu">矢印：5秒で消す ▾</button>
+                <div id="line-menu" class="action-menu-panel" hidden>
+                  <strong>矢印</strong>
+                  <button data-line="temporary">5秒で消す</button>
+                  <button data-line="permanent">残す</button>
+                  <hr />
+                  <button id="clear">今ある矢印を消す</button>
+                </div>
+              </div>
             </div>
             <div class="history">
               <button
@@ -247,7 +261,7 @@
         <section>
           <h3>矢印を描く</h3>
           <p>
-            矢印がないときは、何もないコートを約0.5秒長押ししてから、そのまま指を動かします。矢印が1本以上あれば、次からは長押しせずドラッグして描けます。<br />ツールで「5秒後に消す」「残す」を選べます。すべての矢印が消えると、次の描画には再び長押しが必要です。一時的な矢印は、最後の矢印を描き終えてから5秒後にまとめて消えます。描画中は、指を止めていても前の線を消しません。描画を終えると5秒を数え直します。
+            矢印がないときは、何もないコートを約0.5秒長押ししてから、そのまま指を動かします。矢印が1本以上あれば、次からは長押しせずドラッグして描けます。<br />上部の「矢印」メニューで「5秒で消す」「残す」を選べます。「今ある矢印を消す」も同じメニューにあります。すべての矢印が消えると、次の描画には再び長押しが必要です。一時的な矢印は、最後の矢印を描き終えてから5秒後にまとめて消えます。描画中は、指を止めていても前の線を消しません。描画を終えると5秒を数え直します。
           </p>
         </section>
         <section>
@@ -269,19 +283,19 @@
         <section>
           <h3>初期状態に戻す</h3>
           <p>
-            「初期位置へ」は、最後に呼び出した配置へ戻します。呼び出した配置を上書きした場合は、上書き後の最新配置へ戻ります。まだ配置を呼び出していない場合は、基本配置へ戻します。<br />ツール内の「初期値に戻す」は確認画面を表示します。「はい」を選ぶと①〜⑤の登録内容をリセットし、「いいえ」を選ぶと変更せずに閉じます。
+            「呼び出した配置へ戻す」は、最後に呼び出した配置へ戻します。呼び出した配置を上書きした場合は、上書き後の最新配置へ戻ります。まだ配置を呼び出していない場合は、基本配置へ戻します。<br />ツール内の「初期値に戻す」は確認画面を表示します。「はい」を選ぶと①〜⑤の登録内容をリセットし、「いいえ」を選ぶと変更せずに閉じます。
           </p>
         </section>
         <details>
           <summary>その他の操作</summary>
           <section>
             <h3>自動位置</h3>
-            <p>上部のボタンはOFF → ON → FULLの順に切り替わります。ONは左右の2人を残して中4人、FULLは6人全員がボールを動かしたときにアタックライン付近へ移動します。FULLでは前後衛を問わず左右端の2人が、ボールからサイドラインとアタックラインの交点へ向かうコースに円を内側から接触させます。起動時はOFFです。</p>
+            <p>上部の「自動位置」メニューでオフ・中央4人・全員を選べます。ONは左右の2人を残して中4人、FULLは6人全員がボールを動かしたときにアタックライン付近へ移動します。FULLでは前後衛を問わず左右端の2人が、ボールからサイドラインとアタックラインの交点へ向かうコースに円を内側から接触させます。起動時はOFFです。</p>
             <p>ON・FULLでも両チームの全選手を手動で動かせます。手動移動の完了時に左右端の選手を選び直し、ONでは固定メンバー、FULLでは交点担当にします。自動対象の手動配置は次のボール移動で更新されるため、配置を維持したままボールを動かす場合はOFFにしてください。</p>
             <p>ON・FULLでは両チームの選手の円がボールとの中心間距離で変わります。3.5m未満は前衛75cm・後衛1m、3.5m以上5m未満は1m、5m以上は1.25mです。OFFにすると元のサイズに戻ります。</p>
             <p>選手をつかんでいる間は自動移動を一時停止します。全選手を離した後、次にボールを動かすと再開します。アニメーション中の選手も、見えている位置からつかんで動かせます。</p>
             <p>前衛・後衛を合わせた6人の左右の並び順を保ちます。守備の隙間を小さくし、同程度なら左右端の間を等分した位置に近づけます。隙間の合計が最適候補より10%以内の増加なら、現在の左右位置を維持します。選手の円が重なるなど配置条件を満たせない場合は調整します。</p>
-            <p>自動移動は25cm刻みの配置先へ約240〜600msで表示します。ボールを離した後は最後の移動を完了します。元に戻す操作ではボールと選手が一緒に戻ります。配置呼び出し・「初期位置へ」でOFFになります。</p>
+            <p>自動移動は25cm刻みの配置先へ約240〜600msで表示します。ボールを離した後は最後の移動を完了します。元に戻す操作ではボールと選手が一緒に戻ります。配置呼び出し・「呼び出した配置へ戻す」でOFFになります。</p>
           </section>
           <section>
             <h3>表示の向きと大きさ</h3>
@@ -292,7 +306,7 @@
           <section>
             <h3>狙える範囲</h3>
             <p>
-              ボールを動かすと、相手選手に遮られない方向を黄色で表示します。ツールで「ボールを離して5秒後に消す」「常に表示する」を選べます。
+              ボールを動かすと、相手選手に遮られない方向を黄色で表示します。上部の「狙える範囲」メニューで「一時表示」「常に表示」「表示しない」を選べます。
             </p>
           </section>
           <section>

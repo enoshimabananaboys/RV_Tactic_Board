@@ -523,12 +523,38 @@ main {
   justify-content: center;
   gap: 8px;
   flex: 1 1 0%;
+  min-width: 0;
 }
-#auto-position[aria-pressed="true"] {
-  background: rgb(35, 78, 62);
-  color: white;
-  border-radius: 6px;
+.action-menu { position: relative; }
+.action-menu-panel[hidden] { display: none; }
+.action-menu-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 220px;
+  padding: 8px;
+  border: 1px solid rgb(213, 221, 204);
+  border-radius: 8px;
+  background: rgb(250, 251, 246);
+  box-shadow: 0 6px 18px #0002;
 }
+.action-menu:last-child .action-menu-panel { left: auto; right: 0; }
+.action-menu-panel strong { display: block; padding: 5px 9px; font-size: 12px; }
+.top-actions .action-menu-panel button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 9px;
+  text-align: left;
+  white-space: normal;
+  border-radius: 5px;
+  color: rgb(35, 78, 62);
+}
+.action-menu-panel button[aria-current="true"] { background: rgb(220, 231, 214); font-weight: 700; }
+.action-menu-panel button[aria-current="true"]::before { content: "✓ "; }
+.action-menu-panel small { display: block; margin-top: 2px; font-size: 10px; font-weight: 400; }
+.action-menu-panel hr { border: 0; border-top: 1px solid rgb(213, 221, 204); }
 @media (max-width: 380px) {
   .board-heading .heading-controls { gap: 0; }
   .board-heading .top-actions { gap: 0; }
@@ -569,9 +595,6 @@ main {
 .position-slot.holding {
   outline: rgb(218, 155, 41) solid 3px;
   outline-offset: 1px;
-}
-.line-setting + .line-setting {
-  margin-top: 14px;
 }
 @media (max-width: 580px) {
   .board-heading {
@@ -668,6 +691,11 @@ main {
 }
 .board-heading {
   height: 48px;
+}
+.board-heading:has(.action-menu-panel:not([hidden])) { overflow: visible; }
+@media (max-width: 680px) {
+  .board-heading { height: auto; min-height: 48px; flex-wrap: wrap; justify-content: space-between; padding-top: 4px; padding-bottom: 4px; }
+  .top-actions { order: 3; flex-basis: 100%; flex-wrap: wrap; }
 }
 .heading-controls {
   gap: 6px;

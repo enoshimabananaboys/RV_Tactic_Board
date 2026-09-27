@@ -40,6 +40,8 @@
   let gestureBefore = null;
   let aimVisibleUntil = 0,
     aimTimer;
+  let lineMode = "temporary";
+  let aimMode = "recent";
   function keepAimBriefly() {
     clearTimeout(aimTimer);
     aimVisibleUntil = Date.now() + TIMING.aimLifetime;
@@ -48,11 +50,23 @@
       drawAim();
     }, TIMING.aimLifetime);
   }
-  $("aim-visibility").onchange = () => {
+  function updateAimMode(mode) {
+    aimMode = mode;
+    $("aim-button").textContent = `狙える範囲：${{ recent: "一時表示", always: "常に表示", never: "表示しない" }[mode]} ▾`;
+    document.querySelectorAll("[data-aim]").forEach((button) =>
+      button.setAttribute("aria-current", button.dataset.aim === mode ? "true" : "false"),
+    );
     clearTimeout(aimTimer);
     aimVisibleUntil = 0;
     drawAim();
-  };
+  }
+  function updateLineMode(mode) {
+    lineMode = mode;
+    $("line-button").textContent = `矢印：${mode === "temporary" ? "5秒で消す" : "残す"} ▾`;
+    document.querySelectorAll("[data-line]").forEach((button) =>
+      button.setAttribute("aria-current", button.dataset.line === mode ? "true" : "false"),
+    );
+  }
   let temporaryArrows = [];
   let expiryTimer;
   let arrowExpiryPaused = false;
@@ -135,10 +149,11 @@
     autoPausedAt = null;
   }
   function updateAutoUI() {
-    $("auto-position").setAttribute("aria-pressed", autoEnabled);
-    $("auto-position").textContent = `自動位置${autoMode.toUpperCase()}`;
+    $("auto-position").textContent = `自動位置：${{ off: "オフ", on: "中央4人", full: "全員" }[autoMode]} ▾`;
     $("auto-position").dataset.mode = autoMode;
-    $("auto-position").title = "自動位置OFF → ON（中4人）→ FULL（全6人）";
+    document.querySelectorAll("[data-auto]").forEach((button) =>
+      button.setAttribute("aria-current", button.dataset.auto === autoMode ? "true" : "false"),
+    );
     document.querySelectorAll(".piece:not(.ball)").forEach((button) => {
       button.removeAttribute("aria-disabled");
       button.title = "ドラッグ後に25cm単位へ整列・矢印キーで移動";
@@ -153,12 +168,44 @@
     else stopAutoAnimations();
     updateAutoUI();
   }
-  $("auto-position").onclick = () => {
+  document.querySelectorAll(".action-menu").forEach((menu) => {
+    const trigger = menu.firstElementChild;
+    const panel = menu.lastElementChild;
+    trigger.onclick = () => {
+      const opening = panel.hidden;
+      closeActionMenus();
+      panel.hidden = !opening;
+      trigger.setAttribute("aria-expanded", opening);
+    };
+  });
+  function closeActionMenus() {
+    document.querySelectorAll(".action-menu").forEach((menu) => {
+      menu.lastElementChild.hidden = true;
+      menu.firstElementChild.setAttribute("aria-expanded", "false");
+    });
+  }
+  document.querySelectorAll("[data-line]").forEach((button) => button.onclick = () => {
+    updateLineMode(button.dataset.line);
+    closeActionMenus();
+  });
+  document.querySelectorAll("[data-aim]").forEach((button) => button.onclick = () => {
+    updateAimMode(button.dataset.aim);
+    closeActionMenus();
+  });
+  document.querySelectorAll("[data-auto]").forEach((button) => button.onclick = () => {
     if (gestures.size) return;
-    const modes = ["off", "on", "full"];
-    setAuto(modes[(modes.indexOf(autoMode) + 1) % modes.length]);
+    setAuto(button.dataset.auto);
     render();
-  };
+    closeActionMenus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest(".action-menu")) closeActionMenus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeActionMenus();
+  });
+  updateLineMode(lineMode);
+  updateAimMode(aimMode);
   // 手動操作は表示中の位置から引き継ぐ。他の自動移動は次のボール移動まで停止。
   function beginManualPosition(p, button) {
     if (!autoEnabled) return;
@@ -483,9 +530,9 @@
     const canvas = $("aim-overlay");
     const ball = state.pieces.find((p) => p.team === "ball");
     canvas.hidden =
-      $("aim-visibility").value !== "always" &&
+      aimMode === "never" || (aimMode !== "always" &&
       ![...gestures.values()].some((g) => g.piece?.team === "ball") &&
-      Date.now() >= aimVisibleUntil;
+      Date.now() >= aimVisibleUntil);
     if (canvas.hidden) return;
     const rect = $("court").getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
@@ -731,7 +778,7 @@
       autoMoved: new Set(),
       piece,
       target,
-      temporary: $("line-lifetime").value === "temporary",
+      temporary: lineMode === "temporary",
       offset: piece ? { x: piece.x - start.x, y: piece.y - start.y } : null,
     });
     const pending = gestures.get(event.pointerId);
@@ -963,12 +1010,14 @@
     render();
     announce(message);
   }
-  $("clear").onclick = () =>
+  $("clear").onclick = () => {
+    closeActionMenus();
     change(() => {
       state.arrows = [];
       temporaryArrows = [];
       scheduleExpiry();
-    }, "線を消しました。");
+    }, "矢印を消しました。");
+  };
   $("reset").onclick = () => {
     try {
       const initial =
