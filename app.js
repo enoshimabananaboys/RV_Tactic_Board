@@ -52,7 +52,7 @@
   }
   function updateAimMode(mode) {
     aimMode = mode;
-    $("aim-button").textContent = `狙える範囲：${{ recent: "一時表示", always: "常に表示", never: "表示しない" }[mode]} ▾`;
+    $("aim-button").textContent = `狙う範囲：${{ recent: "５秒", always: "常時", never: "オフ" }[mode]} ▾`;
     document.querySelectorAll("[data-aim]").forEach((button) =>
       button.setAttribute("aria-current", button.dataset.aim === mode ? "true" : "false"),
     );
@@ -62,7 +62,7 @@
   }
   function updateLineMode(mode) {
     lineMode = mode;
-    $("line-button").textContent = `矢印：${mode === "temporary" ? "5秒で消す" : "残す"} ▾`;
+    $("line-button").textContent = `矢印：${mode === "temporary" ? "５秒" : "常時"} ▾`;
     document.querySelectorAll("[data-line]").forEach((button) =>
       button.setAttribute("aria-current", button.dataset.line === mode ? "true" : "false"),
     );
@@ -149,7 +149,7 @@
     autoPausedAt = null;
   }
   function updateAutoUI() {
-    $("auto-position").textContent = `自動位置：${{ off: "オフ", on: "中央4人", full: "全員" }[autoMode]} ▾`;
+    $("auto-position").textContent = `自動位置：${{ off: "オフ", on: "中央", full: "全員" }[autoMode]} ▾`;
     $("auto-position").dataset.mode = autoMode;
     document.querySelectorAll("[data-auto]").forEach((button) =>
       button.setAttribute("aria-current", button.dataset.auto === autoMode ? "true" : "false"),
