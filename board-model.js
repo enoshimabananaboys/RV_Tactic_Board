@@ -252,7 +252,14 @@ const BoardModel = (() => {
       : defenders.filter((p) => fixedIds.includes(p.id));
     if (mode === "full" && fixed.length !== 2) return [];
     const movingIds = new Set([...fixedIds, ...edgeIds]);
-    const moving = defenders.filter((p) => !movingIds.has(p.id)).sort((a, b) => Number(a.number >= 4) - Number(b.number >= 4) || a.x - b.x || a.number - b.number);
+    // 参考版と同じく、前衛・後衛を分けずに現在の左右順を配置中ずっと保つ。
+    // 同じxでは交点担当を両端に置き、残りは番号で順序を確定する。
+    const leftId = anchors[team][0], rightId = anchors[team][1];
+    const ordered = [...defenders].sort((a, b) => a.x - b.x ||
+      Number(b.id === leftId) - Number(a.id === leftId) ||
+      Number(a.id === rightId) - Number(b.id === rightId) || a.number - b.number);
+    const order = new Map(ordered.map((p, i) => [p.id, i]));
+    const moving = ordered.filter((p) => !movingIds.has(p.id));
     const left = fixed.length ? Math.min(...fixed.map((p) => p.x)) : 7;
     const right = fixed.length ? Math.max(...fixed.map((p) => p.x)) : 93;
     const originals = new Map(defenders.map((p) => [p.id, p]));
@@ -277,9 +284,7 @@ const BoardModel = (() => {
       const p = all[i], q = all[j];
       const dx = (p.x - q.x) * 9 / 86, dy = (p.y - q.y) / 5;
       if (dx * dx + dy * dy + 1e-8 < (radii[i] + radii[j]) ** 2) continue;
-      const a = originals.get(p.id), b = originals.get(q.id);
-      if ((p.number >= 4) === (q.number >= 4) &&
-        (a.x - b.x || a.number - b.number) * (p.x - q.x) < 0) continue;
+      if ((order.get(p.id) - order.get(q.id)) * (p.x - q.x) < -1e-9) continue;
       allowed[i][j] = allowed[j][i] = 1;
     }
     const compatible = (p, others) => {
@@ -287,8 +292,11 @@ const BoardModel = (() => {
       return others.every((q) => row[indexes.get(q)]);
     };
     const intervalCache = new Map();
-    const score = (players) => [...autoGapScore(ball, players, team, true, intervalCache), players.reduce((sum, p) => sum + Math.abs(p.x - originals.get(p.id).x), 0)];
-    const compare = (a, b, count = 4) => {
+    const referenceX = (p) => left + (right - left) * order.get(p.id) / 5;
+    const score = (players) => [...autoGapScore(ball, players, team, true, intervalCache),
+      players.reduce((sum, p) => sum + Math.abs(p.x - referenceX(p)), 0),
+      players.reduce((sum, p) => sum + Math.abs(p.x - originals.get(p.id).x), 0)];
+    const compare = (a, b, count = 5) => {
       for (let i = 0; i < count; i++) {
         // 数ミリ相当の角度差では配置を入れ替えず、移動量の少なさを優先する。
         const difference = Math.round(a.score[i] * 1000) - Math.round(b.score[i] * 1000);
@@ -327,7 +335,8 @@ const BoardModel = (() => {
     const selected = retained && shouldKeepAutoPosition(retained.score[1], best.score[1])
       ? retained
       : best;
-    return selected.players.filter((p) => !fixedIds.includes(p.id));
+    return selected.players.filter((p) => !fixedIds.includes(p.id))
+      .sort((a, b) => a.number - b.number);
   }
 
   return {

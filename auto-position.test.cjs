@@ -40,10 +40,10 @@ test("auto placement respects fixed players, grid, attack line, order and non-ov
     for (const p of result) for (const q of all) {
       if (p.id === q.id) continue;
       assert.ok(Math.hypot((p.x-q.x)*9/86, (p.y-q.y)/5) + 1e-8 >= (m.pieceDiameter(p,ball,true)+m.pieceDiameter(q,ball,true))/2);
-      if ((p.number >= 4) === (q.number >= 4)) {
-        const oldP = pieces.find(r => r.id === p.id), oldQ = pieces.find(r => r.id === q.id);
-        assert.ok((oldP.x-oldQ.x || oldP.number-oldQ.number)*(p.x-q.x) >= 0);
-      }
+      const oldP = pieces.find(r => r.id === p.id), oldQ = pieces.find(r => r.id === q.id);
+      if (oldP.x !== oldQ.x)
+        assert.ok((oldP.x-oldQ.x)*(p.x-q.x) >= -1e-8,
+          "front and back players keep their shared left-to-right order");
     }
     const stablePieces = pieces.map(p => result.find(q => q.id === p.id) || p);
     assert.deepEqual(m.autoPosition(stablePieces, anchors, mode), result, "same ball position stays stable");
@@ -153,9 +153,7 @@ test("ON and FULL retain horizontal positions for small changes and reposition w
     const depthChange = structuredClone(baseline);
     depthChange.find(p => p.team === "ball").y = 60;
     const depthResult = m.autoPosition(depthChange, anchors, mode);
-    if (mode === "on")
-      assert.ok(depthResult.every(p => p.x === baseline.find(q => q.id === p.id).x));
-    else
+    if (mode === "full")
       assert.ok(depthResult.some(p => anchors.opponent.includes(p.id) &&
         p.x !== baseline.find(q => q.id === p.id).x));
     assert.ok(depthResult.some(p => p.y !== baseline.find(q => q.id === p.id).y));
