@@ -77,6 +77,12 @@ test("player view: real touch, gestures, history, orientation, offline and file 
     await touch("touchMove", [one, two]);
     const moved = await cam();
     assert.notEqual(moved.x, looked.x); assert.notEqual(moved.z, looked.z);
+    const movedX = moved.x - looked.x, movedZ = moved.z - looked.z;
+    assert.ok(movedX * Math.cos(looked.yaw) - movedZ * Math.sin(looked.yaw) > 0,
+      "two-finger horizontal movement uses the corrected direction");
+    assert.ok(movedX * Math.sin(looked.yaw) + movedZ * Math.cos(looked.yaw) > 0,
+      "two-finger vertical movement uses the corrected direction");
+    assert.ok(Math.abs(moved.fov - looked.fov) < 1e-10, "moving both fingers together preserves zoom");
     assert.equal(moved.yaw, looked.yaw); assert.equal(moved.y, 0.9);
     one = { ...one, x: 100 }; two = { ...two, x: 290 };
     await touch("touchMove", [one, two]);

@@ -91,7 +91,7 @@ CSSには基本書式、コートと縦横差分、ツール、状態表示、�
 
 ## バージョン更新
 
-現在は1.1.0です。リリース時は `index.html` の `.app-version`、`package.json` の `version`、`package-lock.json` のトップレベルとルートパッケージの `version`、READMEと本書のバージョン表記をそろえ、`CHANGELOG.md` に変更内容を記録します。Web App Manifestには標準のバージョン項目がないため独自の項目は追加しません。公開ファイルの変更を反映するため、`sw.js` のキャッシュ版も更新します。1.1.0ではv35です。
+現在は1.1.0です。リリース時は `index.html` の `.app-version`、`package.json` の `version`、`package-lock.json` のトップレベルとルートパッケージの `version`、READMEと本書のバージョン表記をそろえ、`CHANGELOG.md` に変更内容を記録します。Web App Manifestには標準のバージョン項目がないため独自の項目は追加しません。公開ファイルの変更を反映するため、`sw.js` のキャッシュ版も更新します。1.1.0の初回公開はv35、2本指の移動方向を修正した2026-11-01の更新はv36です。
 
 ## 変更時の確認
 

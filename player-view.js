@@ -176,7 +176,8 @@ import * as THREE from "three";
     pointers.set(event.pointerId, next);
     const after = geometry();
     if (pointers.size >= 2) {
-      model.move(view, after.x - before.x, after.y - before.y, canvas.clientHeight);
+      // 2本指の移動だけを反転し、ピンチの倍率計算は維持する。
+      model.move(view, before.x - after.x, before.y - after.y, canvas.clientHeight);
       if (before.radius > 4 && after.radius > 4) model.zoom(view, after.radius / before.radius);
     } else if (previous.pan) model.move(view, next.x - previous.x, next.y - previous.y, canvas.clientHeight);
     else {

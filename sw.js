@@ -1,6 +1,6 @@
 // 公開ファイルを変更したらバージョンを更新する。scopeごとにキャッシュを分離する。
 const PREFIX = "rv-tactic-board-" + self.registration.scope + "-";
-const CACHE = PREFIX + "v35";
+const CACHE = PREFIX + "v36";
 const ASSETS = [
   "./",
   "./index.html",
