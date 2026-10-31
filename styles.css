@@ -2,6 +2,60 @@
  * --court-zoomは表示倍率、--piece-sizeは実寸に比例した選手の直径。
  * コート内のtouch-action:noneは独自のパン・ピンチ判定に必要。
  */
+/* The dialog fills the app viewport, including phone safe areas. */
+#player-view-dialog {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #e4ece6;
+  color: #24483c;
+  overflow: hidden;
+}
+#player-view-dialog[open] { display: flex; flex-direction: column; }
+#player-view-dialog::backdrop { background: #183d35; }
+.player-view-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  background: #f7faf4;
+  border-bottom: 1px solid #ccd8cd;
+  flex-shrink: 0;
+}
+.player-view-identity { display: flex; gap: 10px; align-items: center; }
+.player-view-identity h2 { margin: 0; font-size: 17px; }
+.player-view-identity p { margin: 3px 0 0; font-size: 12px; color: #60776c; }
+.player-view-dot { width: 12px; height: 12px; border-radius: 50%; background: #397cd8; }
+.player-view-dot[data-team="opponent"] { background: #db6559; }
+.player-view-actions { display: flex; gap: 8px; }
+.player-view-actions button { min-height: 44px; padding: 8px 12px; font-size: 13px; border: 1px solid #bccdc0; border-radius: 8px; background: #fff; color: #24483c; cursor: pointer; }
+#close-player-view { background: #244e3e; color: white; }
+.player-view-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+#player-view-canvas { display: block; width: 100%; height: 100%; touch-action: none; outline-offset: -3px; }
+#player-view-canvas:focus { outline: none; }
+#player-view-canvas:focus-visible { outline: 2px solid #7ba68d; }
+.player-view-crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ffffffb0; pointer-events: none; font-size: 22px; }
+#player-view-error { position: absolute; inset: 25% 16px auto; max-width: 450px; margin: auto; padding: 24px; border-radius: 12px; background: #fff; color: #24483c; text-align: center; }
+#player-view-instructions { flex-shrink: 0; margin: 0; padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: #f7faf4; font-size: 12px; line-height: 1.6; text-align: center; }
+#player-view-instructions span { display: block; font-size: 11px; color: #61796d; }
+@media (max-width: 450px) {
+  .player-view-heading { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 8px; gap: 6px; }
+  .player-view-identity h2 { font-size: 15px; }
+  .player-view-actions { gap: 5px; }
+  .player-view-actions button { padding: 7px 8px; font-size: 12px; }
+  #player-view-instructions span { display: none; }
+}
 /* コートの境界は幅86%・高さ90%。競技領域9m×18mを表す。 */
 .attack-line {
   position: absolute;

@@ -14,6 +14,8 @@
     zoom: 3,
     touchSlop: 24,
     mouseSlop: 10,
+    playerTouchSlop: 6,
+    playerMouseSlop: 3,
     doubleTapDistance: 40,
   };
   const {
@@ -156,7 +158,7 @@
     );
     document.querySelectorAll(".piece:not(.ball)").forEach((button) => {
       button.removeAttribute("aria-disabled");
-      button.title = "ドラッグ後に25cm単位へ整列・矢印キーで移動";
+      button.title = "ドラッグ・矢印キーで移動／ダブルタップ・Enterで選手の視点";
     });
   }
   function setAuto(mode) {
@@ -363,7 +365,7 @@
     "pointerdown",
     (event) => {
       dismissedByPointer = false;
-      if ($("help-dialog").open) return;
+      if ($("help-dialog").open || $("player-view-dialog").open) return;
       if (
         $("tool-panel").hidden ||
         $("tool-panel").contains(event.target) ||
@@ -492,6 +494,7 @@
   }
   // SVGは確定線・一時線・描画プレビューを重ねて表示する。
   function drawArrows() {
+    window.PlayerView?.refresh();
     const previews = [...gestures.values()]
       .filter((g) => !g.piece && !g.scrolling && g.end)
       .map((g) => ({ x1: g.start.x, y1: g.start.y, x2: g.end.x, y2: g.end.y }));
@@ -533,6 +536,7 @@
       aimMode === "never" || (aimMode !== "always" &&
       ![...gestures.values()].some((g) => g.piece?.team === "ball") &&
       Date.now() >= aimVisibleUntil);
+    window.PlayerView?.refresh();
     if (canvas.hidden) return;
     const rect = $("court").getBoundingClientRect();
     const ratio = window.devicePixelRatio || 1;
@@ -631,7 +635,7 @@
       button.title =
         p.team === "ball"
           ? "ドラッグで移動・矢印キーで微調整"
-          : "ドラッグ後に25cm単位へ整列・矢印キーで移動";
+          : "ドラッグ・矢印キーで移動／ダブルタップ・Enterで選手の視点";
       placePiece(button, visualPiece(p));
       $("pieces").append(button);
     });
@@ -749,9 +753,22 @@
         }
       : null;
   }
+  function openPlayerView(id) {
+    if (gestures.size) return;
+    lastCourtTap = null;
+    closeActionMenus();
+    $("tool-panel").hidden = true;
+    $("toggle-tools").setAttribute("aria-expanded", "false");
+    window.PlayerView.open(id, () => ({
+      pieces: state.pieces.map((p) => ({ ...visualPiece(p) })),
+      arrows: [...state.arrows, ...temporaryArrows.filter((a) => a.expiresAt > Date.now())],
+      adaptive: autoEnabled,
+      aim: aimMode === "always" || (aimMode === "recent" && Date.now() < aimVisibleUntil),
+    }));
+  }
   // 矢印があれば即時描画、なければ長押し待機／パンへ操作を分岐する。
   function startCourtGesture(event) {
-    if (gestures.has(event.pointerId) || event.button !== 0) return;
+    if ($("player-view-dialog").open || gestures.has(event.pointerId) || event.button !== 0) return;
     const target = event.target.closest(".piece");
     event.preventDefault();
     const start = point(event),
@@ -761,7 +778,12 @@
     if (piece && [...gestures.values()].some((g) => g.piece === piece)) return;
     if (!gestures.size) gestureBefore = copy(state);
     const original = piece ? copy(piece) : null;
-    if (piece && piece.team !== "ball") beginManualPosition(piece, target);
+    // Holding a player still pauses auto motion, but a tap must not change its coordinates.
+    if (piece && piece.team !== "ball" && autoEnabled) {
+      if (autoPausedAt === null) autoPausedAt = performance.now();
+      cancelAnimationFrame(autoFrame);
+      autoFrame = 0;
+    }
     gestures.set(event.pointerId, {
       pointer: event.pointerId,
       tapStarted: Date.now(),
@@ -777,6 +799,7 @@
       autoBefore: piece?.team === "ball" && autoEnabled ? copy(state.pieces) : null,
       autoMoved: new Set(),
       piece,
+      manualStarted: false,
       target,
       temporary: lineMode === "temporary",
       offset: piece ? { x: piece.x - start.x, y: piece.y - start.y } : null,
@@ -809,7 +832,7 @@
       drawArrows();
       resetPinch();
     }
-    if (piece || gestures.size > 1) {
+    if (gestures.size > 1) {
       lastCourtTap = null;
       gestures.forEach((g) => (g.tapMoved = true));
     }
@@ -856,6 +879,15 @@
     }
     const p = point(event);
     if (gesture.piece) {
+      if (gesture.piece.team !== "ball" && !gesture.manualStarted) {
+        const distance = Math.hypot(event.clientX - gesture.tapX, event.clientY - gesture.tapY);
+        if (distance <= (gesture.pointerType === "touch" ? LIMITS.playerTouchSlop : LIMITS.playerMouseSlop)) return;
+        beginManualPosition(gesture.piece, gesture.target);
+        gesture.offset = { x: gesture.piece.x - gesture.start.x, y: gesture.piece.y - gesture.start.y };
+        gesture.manualStarted = true;
+      }
+      gesture.tapMoved = true;
+      lastCourtTap = null;
       const beforeX = gesture.piece.x, beforeY = gesture.piece.y;
       gesture.piece.x = p.x + gesture.offset.x;
       gesture.piece.y = p.y + gesture.offset.y;
@@ -883,7 +915,7 @@
     clearTimeout(g.holdTimer);
     const isTap =
       !cancel &&
-      !g.piece &&
+      g.piece?.team !== "ball" &&
       !g.scrolling &&
       !g.tapMoved &&
       !g.end &&
@@ -891,6 +923,7 @@
     const doubleTap =
       isTap &&
       lastCourtTap &&
+      lastCourtTap.target === (g.piece?.id ?? "court") &&
       g.tapStarted - lastCourtTap.time < TIMING.doubleTap &&
       Math.hypot(
         event.clientX - lastCourtTap.x,
@@ -898,10 +931,10 @@
       ) < LIMITS.doubleTapDistance;
     lastCourtTap =
       isTap && !doubleTap
-        ? { time: Date.now(), x: event.clientX, y: event.clientY }
+        ? { time: Date.now(), x: event.clientX, y: event.clientY, target: g.piece?.id ?? "court" }
         : null;
     const snapFrom =
-      !cancel && g.piece && g.piece.team !== "ball"
+      !cancel && g.manualStarted
         ? screenPoint({ ...g.piece })
         : null;
     if (snapFrom) {
@@ -926,7 +959,7 @@
           placePiece(document.querySelector(`[data-id="${p.id}"]`), p);
         });
       }
-      if (g.piece) {
+      if (g.piece && (g.piece.team === "ball" || g.manualStarted)) {
         Object.assign(g.piece, g.original);
         placePiece(g.target, g.piece);
       }
@@ -953,13 +986,13 @@
         } else state.arrows.push(arrow);
       }
     }
-    if (g.piece && g.piece.team !== "ball") {
+    if (g.manualStarted) {
       for (const other of gestures.values()) {
         const baseline = other.autoBefore?.find((p) => p.id === g.piece.id);
         if (baseline) Object.assign(baseline, g.piece);
       }
     }
-    if (autoEnabled && g.piece && g.piece.team !== "ball" &&
+    if (autoEnabled && g.manualStarted &&
       ![...gestures.values()].some((other) => other.piece?.team === g.piece.team)) {
       const selected = BoardModel.selectAutoAnchors(state.pieces, autoAnchors);
       autoAnchors[g.piece.team] = selected[g.piece.team];
@@ -989,7 +1022,10 @@
         { duration: 240, easing: "ease-out" },
       );
     }
-    if (doubleTap && !gestures.size) toggleCourtFit();
+    if (doubleTap && !gestures.size) {
+      if (g.piece) openPlayerView(g.piece.id);
+      else toggleCourtFit();
+    }
   }
   $("court").addEventListener("pointerdown", startCourtGesture);
   $("court").addEventListener("pointermove", moveCourtGesture);
@@ -1209,7 +1245,7 @@
   });
   updateSlots();
   document.addEventListener("keydown", (event) => {
-    if ($("help-dialog").open) return;
+    if ($("help-dialog").open || $("player-view-dialog").open) return;
     if (event.target.matches("input,textarea,select") || gestures.size) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault();
@@ -1217,6 +1253,11 @@
       return;
     }
     const target = event.target.closest(".piece");
+    if (target && !target.classList.contains("ball") && event.key === "Enter") {
+      event.preventDefault();
+      openPlayerView(target.dataset.id);
+      return;
+    }
     const delta = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],

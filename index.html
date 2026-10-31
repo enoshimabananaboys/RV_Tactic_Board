@@ -11,6 +11,8 @@
     <link rel="stylesheet" href="styles.css" />
     <!-- deferは文書順に実行されるため、計算・配置モデルを先に読み込む。 -->
     <script src="board-model.js" defer></script>
+    <script src="player-view-model.js" defer></script>
+    <script src="player-view.bundle.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -23,7 +25,7 @@
             ><span
               >TACTIC BOARD<small
                 ><span>ローリングバレーボール作戦ボード</span
-                ><span class="app-version">v.1.0.0</span></small
+                ><span class="app-version">v.1.1.0</span></small
               ></span
             >
           </div>
@@ -231,6 +233,24 @@
         準備できました。選手を動かしてみましょう。
       </div>
     </main>
+    <dialog id="player-view-dialog" aria-labelledby="player-view-title" aria-describedby="player-view-instructions">
+      <div class="player-view-heading">
+        <div class="player-view-identity">
+          <span id="player-view-team" class="player-view-dot" aria-hidden="true"></span>
+          <div><h2 id="player-view-title">選手の視点</h2><p>目線の高さ 90cm</p></div>
+        </div>
+        <div class="player-view-actions">
+          <button id="reset-player-view">視点を戻す</button>
+          <button id="close-player-view">2Dに戻る</button>
+        </div>
+      </div>
+      <div class="player-view-stage">
+        <canvas id="player-view-canvas" tabindex="0" aria-label="選手の視点から見た3Dコート。矢印キーで見回す、Shiftと矢印キーで移動、プラス・マイナスで拡大縮小。"></canvas>
+        <p id="player-view-error" role="alert" hidden></p>
+        <span class="player-view-crosshair" aria-hidden="true">+</span>
+      </div>
+      <p id="player-view-instructions">1本指：見回す　2本指：移動・拡大縮小<span>マウス：ドラッグで見回す・右ドラッグで移動・ホイールで拡大縮小</span></p>
+    </dialog>
     <!-- ネイティブdialogで背景操作を抑止し、説明本文だけをスクロールする。 -->
     <dialog id="help-dialog" aria-labelledby="help-title">
       <div class="help-heading">
@@ -265,9 +285,23 @@
           </p>
         </section>
         <section>
+          <h3>選手の視点で見る（3D）</h3>
+          <p>味方・相手の選手をダブルタップすると、その選手の位置・床から90cmの高さで3D画面を開きます。最初は相手コートの中央方向を向きます。</p>
+          <p>
+            1本指でドラッグ：上下左右を見回します。触れた景色が指の動きに追従します。<br />
+            2本指を一緒に動かす：床面に沿って視点の位置を移動します。<br />
+            2本指を広げる・狭める：拡大・縮小します。
+          </p>
+          <p>移動中も目線の高さは90cmで固定です。選手の配置や操作履歴は変わりません。プレーヤーは全員が座位で、足を省略した表示です。</p>
+          <p>「視点を戻す」で開始時の位置・向き・倍率に戻ります。「2Dに戻る」またはEscapeキーで、元のボード表示へ戻ります。</p>
+          <p>マウス：選手をダブルクリックして開き、ドラッグで見回します。右ドラッグ（またはShift＋ドラッグ）で移動、ホイールで拡大・縮小できます。</p>
+          <p>キーボード：選手にフォーカスしてEnterキーで開きます。3D画面では矢印キーで見回し、Shift＋矢印キーで移動、＋・−で拡大・縮小できます。</p>
+          <p>3D表示に対応していない端末では案内が表示されます。「2Dに戻る」でボードを使えます。</p>
+        </section>
+        <section>
           <h3>コートを見る</h3>
           <p>
-            拡大時など、スクロールできる状態では何もないコートを長押しせずに1本指で動かすとパン（スクロール）します。<br />2本指ではパンと拡大・縮小を同時に操作できます。<br />指を広げる・狭めると拡大・縮小します。<br />ダブルタップで「全体表示」と「短辺合わせ」を切り替えます。
+            拡大時など、スクロールできる状態では何もないコートを長押しせずに1本指で動かすとパン（スクロール）します。<br />2本指ではパンと拡大・縮小を同時に操作できます。<br />指を広げる・狭めると拡大・縮小します。<br />選手・ボールのいないコートをダブルタップすると「全体表示」と「短辺合わせ」を切り替えます。
           </p>
         </section>
         <section>

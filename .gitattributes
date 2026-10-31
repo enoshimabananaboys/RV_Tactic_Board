@@ -1,0 +1,2 @@
+# Preserve bundled shader strings; review the source instead of generated code.
+player-view.bundle.js -whitespace linguist-generated=true
